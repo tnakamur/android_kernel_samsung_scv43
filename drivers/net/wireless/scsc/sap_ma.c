@@ -267,10 +267,8 @@ static int slsi_rx_data_process_skb(struct slsi_dev *sdev, struct net_device *de
 			if (peer)
 				peer->sinfo.rx_dropped_misc++;
 		} else {
-			if (peer) {
-				peer->sinfo.rx_packets++;
+			if (peer)
 				ndev_vif->rx_packets[trafic_q]++;
-			}
 			slsi_wakelock_timeout(&sdev->wlan_wl_to, SLSI_RX_WAKELOCK_TIME);
 		}
 		return 1;
@@ -302,10 +300,8 @@ static int slsi_rx_data_process_skb(struct slsi_dev *sdev, struct net_device *de
 		}
 	}
 
-	if (peer) {
-		peer->sinfo.rx_packets++;
+	if (peer)
 		peer->sinfo.rx_bytes += skb->len;
-	}
 
 	ndev_vif->stats.rx_packets++;
 	ndev_vif->stats.rx_bytes += skb->len;

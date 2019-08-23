@@ -589,6 +589,12 @@ static void stk3x3x_work_func_pocket_read(struct work_struct *work)
 			if (((sunlight_protection_mode >> 5) & 0x1) && read_adc == 0) {
 				SENSOR_ERR("SUNLIGHT PROTECTION, prox read is failed, (0x%x)\n"
 					, sunlight_protection_mode);
+				ps_data->pocket_prox = STK3X3X_POCKET_FAR_AWAY;
+				// turn off proximity sensor
+				reg_value = 0;
+				STK3X3X_REG_READ(ps_data, STK3X3X_STATE_REG);
+				reg_value &= (~(STK3X3X_STATE_EN_PS_MASK | STK3X3X_STATE_EN_WAIT_MASK | STK3X3X_STATE_EN_INTELL_PRST_MASK));
+				STK3X3X_REG_READ_MODIFY_WRITE(ps_data, STK3X3X_STATE_REG, reg_value, 0xFF);
 				goto exit;
 			}
 		}
@@ -638,8 +644,10 @@ static void stk_ps_report(struct stk3x3x_data *drv_data, int nf)
 	// PS persistance adjustment
 	if (nf == STK3X3X_PRX_NEAR_BY) {
 		reg_value = (STK3X3X_PS_PRS2 | STK3X3X_PS_GAIN8);
+		drv_data->pocket_prox = STK3X3X_POCKET_NEAR_BY;
 	} else if (nf == STK3X3X_PRX_FAR_AWAY) {
 		reg_value = (STK3X3X_PS_PRS4 | STK3X3X_PS_GAIN8);
+		drv_data->pocket_prox = STK3X3X_POCKET_FAR_AWAY;
 	}
 
 	reg_value = (reg_value | drv_data->ps_it);

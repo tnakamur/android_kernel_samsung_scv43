@@ -56,7 +56,7 @@ static struct fimc_is_sensor_cfg config_module_imx258[] = {
 	/* 1536x1536@30fps */
 	FIMC_IS_SENSOR_CFG(1536, 1536, 30, 24, 7, CSI_DATA_LANES_4),
 	/* 1280x720@120fps */
-	FIMC_IS_SENSOR_CFG(1280, 720, 120, 24, 8, CSI_DATA_LANES_4),
+	FIMC_IS_SENSOR_CFG(1280, 720, 120, 7, 8, CSI_DATA_LANES_4),
 	/* 1024x768@120fps */
 	FIMC_IS_SENSOR_CFG(1024, 768, 120, 24, 9, CSI_DATA_LANES_4),
 };

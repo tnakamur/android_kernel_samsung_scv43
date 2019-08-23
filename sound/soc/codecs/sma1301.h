@@ -1,7 +1,7 @@
 /*
  * sma1301.h -- sma1301 ALSA SoC Audio driver
  *
- * r008_TEST, 2019.01.11
+ * r011, 2019.05.29
  *
  * Copyright 2018 Silicon Mitus Corporation / Iron Device Corporation
  *
@@ -591,6 +591,9 @@
 /* STATUS1 : 0xFA */
 #define OT1_OK_STATUS (1<<7)
 #define OT2_OK_STATUS (1<<6)
+#define REV_NUM_STATUS (7<<3)
+#define REV_NUM_ES0 (4<<3)
+#define REV_NUM_ES1 (5<<3)
 
 /* STATUS2 : 0xFB */
 #define OCP_SPK_STATUS (1<<5)

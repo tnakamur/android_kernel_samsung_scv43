@@ -714,7 +714,7 @@ static int transports_init(struct mxman *mxman)
 	 * Allocate & Initialise Infrastructre Config Structure
 	 * including the mx management stack config information.
 	 */
-	mxconf = miframman_alloc(scsc_mx_get_ramman(mx), sizeof(struct mxconf), 4);
+	mxconf = miframman_alloc(scsc_mx_get_ramman(mx), sizeof(struct mxconf), 4, MIFRAMMAN_OWNER_COMMON);
 	if (!mxconf) {
 		SCSC_TAG_ERR(MXMAN, "miframman_alloc() failed\n");
 		gdb_transport_release(scsc_mx_get_gdb_transport_m4(mx));
@@ -968,7 +968,7 @@ static int mxman_start(struct mxman *mxman)
 	start_mifram_heap = (char *)start_dram + fwhdr->fw_runtime_length;
 	length_mifram_heap = size_dram - fwhdr->fw_runtime_length;
 
-	miframman_init(scsc_mx_get_ramman(mxman->mx), start_mifram_heap, length_mifram_heap);
+	miframman_init(scsc_mx_get_ramman(mxman->mx), start_mifram_heap, length_mifram_heap, start_dram);
 	mifmboxman_init(scsc_mx_get_mboxman(mxman->mx));
 	mifintrbit_init(scsc_mx_get_intrbit(mxman->mx), mif);
 
