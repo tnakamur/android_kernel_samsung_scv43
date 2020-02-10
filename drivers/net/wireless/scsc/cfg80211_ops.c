@@ -17,6 +17,7 @@
 #include "mib.h"
 
 #include "scsc_wifilogger_rings.h"
+#include "nl80211_vendor.h"
 
 #define SLSI_MAX_CHAN_2G_BAND          14
 
@@ -451,7 +452,20 @@ int slsi_scan(struct wiphy *wiphy, struct net_device *dev,
 		r = -EBUSY;
 		goto exit;
 	}
+#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+	if (ndev_vif->is_wips_running && (ndev_vif->vif_type == FAPI_VIFTYPE_STATION) &&
+	    (ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED)) {
+		int ret = 0;
 
+		SLSI_NET_DBG3(dev, SLSI_CFG80211, "Scan invokes DRIVER_BCN_ABORT\n");
+		ret = slsi_mlme_set_forward_beacon(sdev, dev, FAPI_ACTION_STOP);
+
+		if (!ret) {
+			ret = slsi_send_forward_beacon_abort_vendor_event(sdev,
+									  SLSI_FORWARD_BEACON_ABORT_REASON_SCANNING);
+		}
+	}
+#endif
 	SLSI_NET_DBG3(dev, SLSI_CFG80211, "channels:%d, ssids:%d, ie_len:%d, vif_index:%d\n", request->n_channels,
 		      request->n_ssids, (int)request->ie_len, ndev_vif->ifnum);
 
@@ -1892,7 +1906,9 @@ int slsi_start_ap(struct wiphy *wiphy, struct net_device *dev,
 #ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
 	int wifi_sharing_channel_switched = 0;
 	struct netdev_vif *ndev_sta_vif;
+	int invalid_channel = 0;
 #endif
+	int skip_indoor_check_for_wifi_sharing = 0;
 	u8 *ds_params_ie = NULL;
 	struct ieee80211_mgmt  *mgmt;
 	u16                    beacon_ie_head_len;
@@ -1926,7 +1942,15 @@ int slsi_start_ap(struct wiphy *wiphy, struct net_device *dev,
 		if ((ndev_sta_vif->activated) && (ndev_sta_vif->vif_type == FAPI_VIFTYPE_STATION) &&
 		    (ndev_sta_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTING ||
 		     ndev_sta_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED)) {
-			slsi_select_wifi_sharing_ap_channel(wiphy, dev, settings, sdev, &wifi_sharing_channel_switched);
+			invalid_channel = slsi_select_wifi_sharing_ap_channel(wiphy, dev, settings, sdev,
+									      &wifi_sharing_channel_switched);
+			skip_indoor_check_for_wifi_sharing = 1;
+			if (invalid_channel) {
+				SLSI_NET_ERR(dev, "Rejecting AP start req at host (invalid channel)\n");
+				SLSI_MUTEX_UNLOCK(ndev_sta_vif->vif_mutex);
+				r = -EINVAL;
+				goto exit_with_vif_mutex;
+			}
 		}
 		SLSI_MUTEX_UNLOCK(ndev_sta_vif->vif_mutex);
 	}
@@ -1948,7 +1972,8 @@ int slsi_start_ap(struct wiphy *wiphy, struct net_device *dev,
 			}
 		}
 	}
-	if (sdev->band_5g_supported && ((settings->chandef.chan->center_freq / 1000) == 5)) {
+	if (!skip_indoor_check_for_wifi_sharing && sdev->band_5g_supported &&
+	    ((settings->chandef.chan->center_freq / 1000) == 5)) {
 		channel =  ieee80211_get_channel(sdev->wiphy, settings->chandef.chan->center_freq);
 		if (!channel) {
 			SLSI_ERR(sdev, "Invalid frequency %d used to start AP. Channel not found\n",
