@@ -48,5 +48,9 @@ obj-$(CONFIG_SDP) += sdp/
 obj-$(CONFIG_SDP) += sdp/built-in.o
 
 # PROCA module
-subdir-$(CONFIG_PROCA)			+= proca
-obj-$(CONFIG_PROCA)			+= proca/
+subdir-$(CONFIG_PROCA)		+= proca
+obj-$(CONFIG_PROCA)		+= proca/
+
+# Kbuild should always enter proca/gaf because gaf should be always built
+subdir-y += proca/gaf
+obj-y    += proca/gaf/

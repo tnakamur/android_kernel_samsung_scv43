@@ -1,5 +1,5 @@
 /*
- *  sec_gaf.c
+ *  gaf_v3.c
  *
  */
 
@@ -225,7 +225,7 @@ static struct GAForensicINFO {
 	.GAFINFOCheckSum = 0
 };
 
-void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
+static int __init proca_init_gaf(void)
 {
 	unsigned short *checksum = &(GAFINFO.GAFINFOCheckSum);
 	unsigned char *memory = (unsigned char *)&GAFINFO;
@@ -234,13 +234,7 @@ void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
 	 *  Add GAForensic init for preventing symbol removal for optimization.
 	 */
 	GAFINFO.phys_offset = PHYS_OFFSET;
-	GAFINFO.rq_struct_curr = curr_offset;
-
-#ifdef CONFIG_FAIR_GROUP_SCHED
-	GAFINFO.cfs_rq_struct_rq_struct = rq_offset;
-#else
-	GAFINFO.cfs_rq_struct_rq_struct = 0x1224;
-#endif
+	GAFINFO.rq_struct_curr = 0;
 
 	for (*checksum = 0, address = 0;
 	     address < (sizeof(GAFINFO) - sizeof(GAFINFO.GAFINFOCheckSum));
@@ -251,13 +245,7 @@ void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
 		else
 			(*checksum) = ((*checksum) << 1) ^ memory[address];
 	}
-}
-EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
 
-static int __init sec_gaf_init(void)
-{
-	GAFINFO.phys_offset = PHYS_OFFSET;
 	return 0;
 }
-
-core_initcall(sec_gaf_init);
+core_initcall(proca_init_gaf);

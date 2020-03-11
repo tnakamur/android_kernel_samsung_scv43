@@ -1,7 +1,9 @@
 /*
- *  sec_gaf.c
+ *  gaf_v4.c
  *
  */
+#include "proca_gaf.h"
+
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/sched.h>
@@ -242,7 +244,7 @@ static struct GAForensicINFO {
 	.GAFINFOCheckSum = 0
 };
 
-void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
+static int __init proca_init_gaf(void)
 {
 	const unsigned short size =
 			offsetof(struct GAForensicINFO, GAFINFOCheckSum);
@@ -252,12 +254,8 @@ void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
 	/*
 	 *  Add GAForensic init for preventing symbol removal for optimization.
 	 */
-	GAFINFO.rq_struct_curr = curr_offset;
-#ifdef CONFIG_FAIR_GROUP_SCHED
-	GAFINFO.cfs_rq_struct_rq_struct = rq_offset;
-#else
-	GAFINFO.cfs_rq_struct_rq_struct = 0x1224;
-#endif
+	GAFINFO.rq_struct_curr = 0;
+
 	for (i = 0; i < size; i++) {
 		if (checksum & 0x8000)
 			checksum = ((checksum << 1) | 1) ^ memory[i];
@@ -265,5 +263,7 @@ void sec_gaf_supply_rqinfo(unsigned short curr_offset, unsigned short rq_offset)
 			checksum = (checksum << 1) ^ memory[i];
 	}
 	GAFINFO.GAFINFOCheckSum = checksum;
+
+	return 0;
 }
-EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
+core_initcall(proca_init_gaf)
