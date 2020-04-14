@@ -24,6 +24,9 @@
 #include <linux/usb_notify.h>
 #include <linux/ccic/ccic_sysfs.h>
 
+#if defined(CONFIG_CCIC_ALTERNATE_MODE)
+#include <linux/ccic/ccic_alternate.h>
+#endif
 extern struct device *ccic_device;
 extern struct pdic_notifier_struct pd_noti;
 
@@ -687,6 +690,7 @@ static int pdic_handle_usb_external_notifier_notification(struct notifier_block 
 {
 	struct s2mm005_data *usbpd_data = dev_get_drvdata(ccic_device);
 	int ret = 0;
+	int is_src = 0;
 	int enable = *(int *)data;
 
 	pr_info("%s : action=%lu , enable=%d\n",__func__,action,enable);
@@ -703,6 +707,9 @@ static int pdic_handle_usb_external_notifier_notification(struct notifier_block 
 		break;
 	case EXTERNAL_NOTIFY_HOSTBLOCK_POST:
 		if(enable) {
+			is_src = usbpd_data->func_state & (0x1 << 25) ? 1 : 0;
+			if (is_src)
+				s2mm005_set_upsm_mode();
 		} else {
 			set_enable_alternate_mode(ALTERNATE_MODE_START);
 		}
@@ -1028,17 +1035,26 @@ static int s2mm005_usbpd_probe(struct i2c_client *i2c,
 	usbpd_data->typec_cap.revision = USB_TYPEC_REV_1_2;
 	usbpd_data->typec_cap.pd_revision = 0x300;
 	usbpd_data->typec_cap.prefer_role = TYPEC_NO_PREFERRED_ROLE;
+	usbpd_data->typec_cap.pr_set = s2mm005_pr_set;
+	usbpd_data->typec_cap.dr_set = s2mm005_dr_set;
 	usbpd_data->typec_cap.port_type_set = s2mm005_port_type_set;
 	usbpd_data->typec_cap.type = TYPEC_PORT_DRP;
+	
+	usbpd_data->typec_power_role = TYPEC_SINK;
+	usbpd_data->typec_data_role = TYPEC_DEVICE;
+	usbpd_data->typec_try_state_change = TRY_ROLE_SWAP_NONE;
+
 	usbpd_data->port = typec_register_port(usbpd_data->dev, &usbpd_data->typec_cap);
 	if (IS_ERR(usbpd_data->port))
 		pr_err("%s : unable to register typec_register_port\n", __func__);
 	else
 		pr_err("%s : success typec_register_port port=%pK\n", __func__, usbpd_data->port);
 
-	init_completion(&usbpd_data->role_reverse_completion);
+	usbpd_data->partner = NULL;
+	init_completion(&usbpd_data->typec_reverse_completion);
 	INIT_DELAYED_WORK(&usbpd_data->typec_role_swap_work, typec_role_swap_check);
 #endif
+	usbpd_data->pd_support = false;
 #if defined(CONFIG_USB_HOST_NOTIFY)
 	send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
 #endif

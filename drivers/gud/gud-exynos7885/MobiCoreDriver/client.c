@@ -432,6 +432,7 @@ struct tee_client *client_create(bool is_from_kernel)
 	mutex_init(&client->sessions_lock);
 	INIT_LIST_HEAD(&client->list);
 	mutex_init(&client->quick_lock);
+	mutex_init(&client->cwsm_release_lock);
 	INIT_LIST_HEAD(&client->cwsms);
 	INIT_LIST_HEAD(&client->operations);
 	/* Add client to list of clients */
@@ -694,8 +695,8 @@ int client_open_trustlet(struct tee_client *client, u32 *session_id, u32 spid,
 		/* Create secure object from kernel-space trustlet binary */
 		obj = tee_object_copy(trustlet, trustlet_len);
 	else
-	/* Create secure object from user-space trustlet binary */
-	obj = tee_object_read(spid, trustlet, trustlet_len);
+		/* Create secure object from user-space trustlet binary */
+		obj = tee_object_read(spid, trustlet, trustlet_len);
 	if (IS_ERR(obj)) {
 		err = PTR_ERR(obj);
 		goto end;

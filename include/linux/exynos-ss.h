@@ -164,6 +164,13 @@ void exynos_ss_dump_sfr(void);
 #define exynos_ss_dump_sfr()		do { } while(0)
 #endif
 
+#ifdef CONFIG_SEC_DEBUG
+extern void exynos_ss_get_hardlockup_info(unsigned int cpu, void *info);
+extern void exynos_ss_get_softlockup_info(unsigned int cpu, void *info);
+#else
+#define exynos_ss_get_hardlockup_info(a, b)	do { } while (0)
+#define exynos_ss_get_softlockup_info(a, b)	do { } while (0)
+#endif
 #else
 #define exynos_ss_acpm(a,b,c)		do { } while(0)
 #define exynos_ss_task(a,b)		do { } while(0)
@@ -208,6 +215,8 @@ void exynos_ss_dump_sfr(void);
 #define exynos_ss_get_last_pc_paddr()	do { } while(0)
 #define exynos_ss_hook_hardlockup_entry(a) do { } while(0)
 #define exynos_ss_hook_hardlockup_exit() do { } while(0)
+#define exynos_ss_get_hardlockup_info(a, b)	do { } while (0)
+#define exynos_ss_get_softlockup_info(a, b)	do { } while (0)
 
 static inline bool exynos_ss_dumper_one(void *v_dumper,
 				char *line, size_t size, size_t *len)

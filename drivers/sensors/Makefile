@@ -16,6 +16,7 @@ obj-$(CONFIG_SENSORS_LIS2DS_SPI)            += lis2ds_spi.o
 obj-$(CONFIG_SENSORS_K2HH)          += k2hh.o
 # magnetic_sensor
 obj-$(CONFIG_SENSORS_YAS539)		+= yas_mag_drv-yas539.o yas_mag_kernel.o
+obj-$(CONFIG_SENSORS_AK09918C)	    += ak09916c.o
 # optical_sensor
 obj-$(CONFIG_SENSORS_GP2AP070S)	    += gp2ap070s.o
 obj-$(CONFIG_SENSORS_GP2AP110S)	    += gp2ap110s.o

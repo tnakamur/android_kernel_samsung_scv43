@@ -103,7 +103,7 @@
 #define DBMDX_VE_AMODEL_NAME			"ve_amodel.bin"
 #endif
 
-#define MAX_REQ_SIZE				8192
+#define MAX_REQ_SIZE				4096
 
 #define DBMDX_AMODEL_HEADER_SIZE		12
 #define DBMDX_AMODEL_MAX_CHUNKS			3

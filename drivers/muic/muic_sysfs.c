@@ -421,8 +421,12 @@ static ssize_t muic_show_vbus_value(struct device *dev,
 
 	if (val > 0)
 		return sprintf(buf, "%dV\n", val);
-
+	
+#if defined(CONFIG_MUIC_S2MU205) //s2mu205 muic doesn't support vbus voltage reading, so its NA(Not Applicable)
+	return sprintf(buf, "NA\n");
+#else
 	return sprintf(buf, "UNKNOWN\n");
+#endif
 }
 
 #if IS_ENABLED(CONFIG_MUIC_HV)

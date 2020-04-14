@@ -2168,6 +2168,13 @@ struct netdev_notifier_info {
 	struct net_device *dev;
 };
 
+struct netdev_notifier_info_ext {
+	struct netdev_notifier_info info; /* must be first */
+	union {
+		u32 mtu;
+	} ext;
+};
+
 struct netdev_notifier_change_info {
 	struct netdev_notifier_info info; /* must be first */
 	unsigned int flags_changed;
@@ -2610,6 +2617,10 @@ struct softnet_data {
 	unsigned int		dropped;
 	struct sk_buff_head	input_pkt_queue;
 	struct napi_struct	backlog;
+
+#ifdef CONFIG_MODEM_IF_NET_GRO
+	struct napi_struct	*current_napi;
+#endif
 
 };
 
@@ -3076,6 +3087,10 @@ struct sk_buff *napi_get_frags(struct napi_struct *napi);
 gro_result_t napi_gro_frags(struct napi_struct *napi);
 struct packet_offload *gro_find_receive_by_type(__be16 type);
 struct packet_offload *gro_find_complete_by_type(__be16 type);
+
+#if defined(CONFIG_SEC_SIPC_MODEM_IF) || defined(CONFIG_SEC_SIPC_DUAL_MODEM_IF)
+struct napi_struct *napi_get_current(void);
+#endif
 
 static inline void napi_free_frags(struct napi_struct *napi)
 {

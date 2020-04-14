@@ -505,6 +505,8 @@ static bool himax_mcu_sense_off(bool check_en)
 			msleep(10);
 #ifdef HX_RST_PIN_FUNC
 			g_core_fp.fp_ic_reset(false, false);
+#else
+			g_core_fp.fp_system_reset();
 #endif
 		}
 	} while (cnt++ < 15);
@@ -1462,8 +1464,14 @@ static bool himax_mcu_calculateChecksum(bool change_iref)
 	for (i = 0; i < DATA_LEN_4; i++) {
 		tmp_data[i] = psram_op->addr_rawdata_end[i];
 	}
-
-	CRC_result = g_core_fp.fp_check_CRC(tmp_data, FW_SIZE_64k);
+	
+	if (strcmp(private_ts->chip_name, HX_83102D_SERIES_PWON) == 0) {
+		I("Now size=%d\n", FW_SIZE_128k);
+		CRC_result = g_core_fp.fp_check_CRC(tmp_data, FW_SIZE_128k);
+	} else {
+		I("Now size=%d\n", FW_SIZE_64k);
+		CRC_result = g_core_fp.fp_check_CRC(tmp_data, FW_SIZE_64k);
+	}
 	msleep(50);
 
 	if (CRC_result != 0) {
@@ -2275,8 +2283,42 @@ static int himax_mcu_fts_ctpm_fw_upgrade_with_sys_fs_124k(unsigned char *fw,
 static int himax_mcu_fts_ctpm_fw_upgrade_with_sys_fs_128k(unsigned char *fw,
 							int len, bool change_iref)
 {
-	/* Not use */
-	return 0;
+	int burnFW_success = 0;
+	
+	if (len != FW_SIZE_128k) {
+		input_err(true, &private_ts->client->dev,
+			"%s %s: The file size is not 128K bytes\n",
+			HIMAX_LOG_TAG, __func__);
+		return false;
+	}
+#ifdef HX_RST_PIN_FUNC
+	g_core_fp.fp_ic_reset(false, false);
+#else
+	g_core_fp.fp_system_reset();
+#endif
+	g_core_fp.fp_sense_off(true);
+	g_core_fp.fp_block_erase(0x00, FW_SIZE_128k);
+	g_core_fp.fp_flash_programming(fw, FW_SIZE_128k);
+	
+	if (g_core_fp.
+		fp_check_CRC(pfw_op->addr_program_reload_from, FW_SIZE_128k) == 0) {
+		burnFW_success = 1;
+	}
+	
+	/*RawOut select initial*/
+	g_core_fp.fp_register_write(pfw_op->addr_raw_out_sel,
+					sizeof(pfw_op->data_clear),
+					pfw_op->data_clear, 0);
+	/*DSRAM func initial*/
+	g_core_fp.fp_assign_sorting_mode(pfw_op->data_clear);
+	
+#ifdef HX_RST_PIN_FUNC
+	g_core_fp.fp_ic_reset(false, false);
+#else
+	/*System reset*/
+	g_core_fp.fp_system_reset();
+#endif
+	return burnFW_success;
 }
 
 static void himax_mcu_flash_dump_func(uint8_t local_flash_command,
@@ -2310,6 +2352,13 @@ static bool himax_mcu_flash_lastdata_check(void)
 	uint32_t flash_page_len = 0x80;
 	uint8_t flash_tmp_buffer[128];
 
+	if (strcmp(private_ts->chip_name, HX_83102D_SERIES_PWON) == 0)
+		start_addr = FW_SIZE_128k - flash_page_len;
+	else
+		start_addr = FW_SIZE_64k - flash_page_len;
+
+	I("Now start size=0x%08X\n", start_addr);
+	
 	for (temp_addr = start_addr; temp_addr < (start_addr + flash_page_len);
 		temp_addr = temp_addr + flash_page_len) {
 		/*input_info(true, &private_ts->client->dev, "temp_addr=%d,tmp_addr[0]=0x%2X, tmp_addr[1]=0x%2X,tmp_addr[2]=0x%2X,tmp_addr[3]=0x%2X\n", temp_addr,tmp_addr[0], tmp_addr[1], tmp_addr[2],tmp_addr[3]);*/
@@ -2805,6 +2854,8 @@ static void himax_mcu_esd_ic_reset(void)
 	HX_ESD_RESET_ACTIVATE = 0;
 #ifdef HX_RST_PIN_FUNC
 	himax_mcu_pin_reset();
+#else
+	g_core_fp.fp_system_reset();
 #endif
 	input_info(true, &private_ts->client->dev, "%s %s:\n", HIMAX_LOG_TAG,
 			__func__);

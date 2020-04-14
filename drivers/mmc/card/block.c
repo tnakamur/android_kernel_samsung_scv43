@@ -745,7 +745,7 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_kernel(
 	struct mmc_blk_ioc_data *idata;
 	int err;
 
-	idata = kzalloc(sizeof(*idata), GFP_KERNEL);
+	idata = kzalloc(sizeof(*idata), GFP_NOIO);
 	if (!idata) {
 		err = -ENOMEM;
 		goto out;
@@ -762,7 +762,7 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_kernel(
 	if (!idata->buf_bytes)
 		return idata;
 
-	idata->buf = kzalloc(idata->buf_bytes, GFP_KERNEL);
+	idata->buf = kzalloc(idata->buf_bytes, GFP_NOIO);
 	if (!idata->buf) {
 		err = -ENOMEM;
 		goto idata_err;
@@ -1467,6 +1467,11 @@ static void mmc_blk_get_card(struct block_device *bdev, bool get)
 
 	disk = bdev->bd_disk;
 	md = mmc_blk_get(disk);
+	if(!md)
+	{
+		pr_err("%s: mmc block data is invalid\n", __func__);
+		return;
+	}
 	card = md->queue.card;
 
 	if (get)
@@ -1743,26 +1748,26 @@ static void mmc_card_error_logging(struct mmc_card *card, struct mmc_blk_request
 	if (!brq)
 		return;
 
-	if (status & STATUS_MASK || brq->stop.resp[0] & STATUS_MASK)
+	if (status & STATUS_MASK || brq->stop.resp[0] & STATUS_MASK || brq->cmd.resp[0] & STATUS_MASK)
 	{
-		if(status & R1_ERROR || brq->stop.resp[0] & R1_ERROR) {
+		if(status & R1_ERROR || brq->stop.resp[0] & R1_ERROR || brq->cmd.resp[0] & R1_ERROR) {
 			err_log[index].ge_cnt++;
 			if (!(err_log[index].ge_cnt % 1000))
 				noti = true;
 		}
-		if(status & R1_CC_ERROR || brq->stop.resp[0] & R1_CC_ERROR)
+		if(status & R1_CC_ERROR || brq->stop.resp[0] & R1_CC_ERROR || brq->cmd.resp[0] & R1_CC_ERROR)
 			err_log[index].cc_cnt++;
-		if(status & R1_CARD_ECC_FAILED || brq->stop.resp[0] & R1_CARD_ECC_FAILED) {
+		if(status & R1_CARD_ECC_FAILED || brq->stop.resp[0] & R1_CARD_ECC_FAILED || brq->cmd.resp[0] & R1_CARD_ECC_FAILED) {
 			err_log[index].ecc_cnt++;
 			if (!(err_log[index].ecc_cnt % 1000))
 				noti = true;
 		}
-		if(status & R1_WP_VIOLATION || brq->stop.resp[0] & R1_WP_VIOLATION) {
+		if(status & R1_WP_VIOLATION || brq->stop.resp[0] & R1_WP_VIOLATION || brq->cmd.resp[0] & R1_WP_VIOLATION) {
 			err_log[index].wp_cnt++;
 			if (!(err_log[index].wp_cnt % 100))
 				noti = true;
 		}
-		if(status & R1_OUT_OF_RANGE || brq->stop.resp[0] & R1_OUT_OF_RANGE) {
+		if(status & R1_OUT_OF_RANGE || brq->stop.resp[0] & R1_OUT_OF_RANGE || brq->cmd.resp[0] & R1_OUT_OF_RANGE) {
 			err_log[index].oor_cnt++;
 			if (!(err_log[index].oor_cnt % 100))
 				noti = true;
@@ -1899,10 +1904,10 @@ static ssize_t error_count_show(struct device *dev,
 	}
 
 	total_len += snprintf(buf + total_len, PAGE_SIZE,
-						   "GE:%d,CC:%d,ECC:%d,WP:%d,OOR:%d,CRC:%lld,TMO:%lld\n",
+						   "GE:%d,CC:%d,ECC:%d,WP:%d,OOR:%d,CRC:%lld,TMO:%lld,HALT:%d,CQEN:%d,RPMB:%d\n",
 						   err_log[0].ge_cnt, err_log[0].cc_cnt, err_log[0].ecc_cnt,
-						   err_log[0].wp_cnt, err_log[0].oor_cnt, total_c_cnt, total_t_cnt);
-
+						   err_log[0].wp_cnt, err_log[0].oor_cnt, total_c_cnt, total_t_cnt,
+						   err_log[0].halt_cnt, err_log[0].cq_cnt, err_log[0].rpmb_cnt);
 out:
 	return total_len;
 }
@@ -2419,6 +2424,7 @@ clear_dcmd:
 
 			if (!test_bit(CMDQ_STATE_ERR, &ctx_info->curr_state)) {
 				set_bit(CMDQ_STATE_ERR, &ctx_info->curr_state);
+				host->cmdq_ops->pclear(host);
 				schedule_work(&mq->cmdq_err_work);
 			}
 			clear_bit(CMDQ_STATE_DCMD_ACTIVE,
@@ -2765,6 +2771,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	if (brq->cmd.resp[0] & CMD_ERRORS) {
 		pr_err("%s: r/w command failed, status = %#x\n",
 		       req->rq_disk->disk_name, brq->cmd.resp[0]);
+		mmc_card_error_logging(card, brq, brq->cmd.resp[0]);
 		return MMC_BLK_ABORT;
 	}
 
@@ -3382,6 +3389,7 @@ static struct mmc_cmdq_req *mmc_cmdq_prep_dcmd(
 #define IS_RT_CLASS_REQ(x)     \
 	(IOPRIO_PRIO_CLASS(req_get_ioprio(x)) == IOPRIO_CLASS_RT)
 SIO_PATCH_VERSION(eMMC_CP, 1, 0, "");
+/* IOPP-emmc_cp-v1.0.4.4 */
 
 static struct mmc_cmdq_req *mmc_blk_cmdq_rw_prep(
 		struct mmc_queue_req *mqrq, struct mmc_queue *mq)
@@ -3764,6 +3772,7 @@ reset:
 	clear_bit(CMDQ_STATE_ERR_HOST, &ctx_info->curr_state);
 	set_bit(CMDQ_STATE_ERR_RCV_DONE, &ctx_info->curr_state);
 	clear_bit(CMDQ_STATE_DCMD_ACTIVE, &ctx_info->curr_state);
+	clear_bit(CMDQ_STATE_DO_RECOVERY, &ctx_info->curr_state);
 	ctx_info->dump_state = CMDQ_DUMP_NONE_ERR;
 	printk("\n\n=============== CQ RECOVERY END ======================\n\n");
 	wake_up(&ctx_info->wait);
@@ -3821,6 +3830,7 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 				__func__, err);
 		} else {
 			set_bit(CMDQ_STATE_ERR, &ctx_info->curr_state);
+			host->cmdq_ops->pclear(host);
 			schedule_work(&mq->cmdq_err_work);
 		}
 		goto err;

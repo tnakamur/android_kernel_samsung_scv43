@@ -436,6 +436,10 @@ static void fts_set_factory_history_data(struct fts_ts_info *info, u8 level)
 		return;
 	}
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
+	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
+	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 	regaddr[0] = 0xC7;
 	regaddr[1] = 0x04;
 	regaddr[2] = wlevel;
@@ -444,7 +448,7 @@ static void fts_set_factory_history_data(struct fts_ts_info *info, u8 level)
 	if (ret < 0) {
 		input_err(true, &info->client->dev,
 				"%s: failed to write factory level %d\n", __func__, wlevel);
-		return;
+	goto out;
 	}
 
 	regaddr[0] = 0xA4;
@@ -454,16 +458,18 @@ static void fts_set_factory_history_data(struct fts_ts_info *info, u8 level)
 	if (ret < 0) {
 		input_err(true, &info->client->dev,
 				"%s: failed to save flash (level=%d)\n", __func__, wlevel);
-		return;
+		goto out;
 	}
 
 	fts_delay(200);
 
 	ret = fts_fw_wait_for_echo_event(info, regaddr, 3);
 	if (ret < 0)
-		return;
+		goto out;
 
 	input_info(true, &info->client->dev, "%s: save to flash area, level=%d\n", __func__, wlevel);
+out:
+	fts_set_scanmode(info, info->scan_mode);
 	return;
 }
 
@@ -484,9 +490,11 @@ int fts_execute_autotune(struct fts_ts_info *info, bool IsSaving)
 
 	input_info(true, &info->client->dev, "%s: start\n", __func__);
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
 
 	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 
 	// w A4 00 03
 	if (IsSaving == true) {
@@ -520,9 +528,10 @@ int fts_execute_autotune(struct fts_ts_info *info, bool IsSaving)
 	if (IsSaving == true)
 		fts_panel_ito_test(info, SAVE_MISCAL_REF_RAW);
 
+	return rc;
 ERROR:
 	info->factory_position = OFFSET_FAC_NOSAVE;
-	fts_interrupt_set(info, INT_ENABLE);
+	fts_set_scanmode(info, info->scan_mode);
 	return rc;
 }
 

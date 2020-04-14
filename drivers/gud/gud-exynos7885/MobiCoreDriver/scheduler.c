@@ -150,6 +150,13 @@ static int tee_scheduler(void *arg)
 					mc_scheduler_command(NSIQ);
 				}
 			}
+			/* If multiple commands have been posted,
+			 * signal only once. The SWd will not become idle
+			 * until they are all consumed
+			 */
+			while (try_wait_for_completion(
+				&sched_ctx.idle_complete))
+				;
 		}
 
 		if (kthread_should_stop() || !sched_ctx.thread_run)
@@ -182,11 +189,16 @@ static int tee_scheduler(void *arg)
 		nq_reset_idle_timeout();
 		if (timeslice--) {
 			/* Resume SWd from where it was */
-			ret = mc_fc_yield();
+			ret = mc_fc_yield(timeslice);
 		} else {
+			u32 session_id = 0;
+			u32 payload = 0;
+
+			nq_retrieve_last(&session_id, &payload);
 			timeslice = SCHEDULING_FREQ;
+
 			/* Call SWd scheduler */
-			ret = mc_fc_nsiq();
+			ret = mc_fc_nsiq(session_id, payload);
 		}
 
 		/* Always flush log buffer after the SWd has run */

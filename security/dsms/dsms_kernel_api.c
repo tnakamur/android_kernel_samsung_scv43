@@ -112,7 +112,7 @@ static int check_recovery_mode(void)
 	return (recovery > 0);
 }
 
-static inline int dsms_send_allowed_message(const char *feature_code,
+static int dsms_send_allowed_message(const char *feature_code,
 		const char *detail,
 		int64_t value)
 {

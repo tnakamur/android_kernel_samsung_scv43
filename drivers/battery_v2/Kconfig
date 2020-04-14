@@ -311,6 +311,16 @@ config FUELGAUGE_S2MU005
 	 Ths fuel-gauge supports current tracking and
 	 voltage tracking to model the battery SOC.
 
+config S2MU005_VOLT_MODE_TUNING
+	tristate "S2MU005 volt mode tuning"
+	default n
+	depends on FUELGAUGE_S2MU005
+	help
+	 Say Y to include support 0x13
+	 register volt tunning, so the value should be
+	 existed in device tree to prevent wrong
+	 fuelgauge parameter reading.
+
 # Charger
 
 config CHARGER_DUMMY
@@ -644,3 +654,21 @@ config ENABLE_100MA_CHARGING_BEFORE_USB_CONFIGURED
 	default n
 	help
 	  Say Y to enable 100mA before usb configured
+
+config ABNORMAL_BAT_THM_WA
+	bool "enable SW Workaround for abnormal jump in battery thermistor ADC"
+	default n
+	help
+	  Say Y to enable SW Workaround for abnormal jump in battery thermistor ADC
+
+config S2MU004_MODE_CHANGE_BY_TOPOFF
+	bool "enable s2mu004 mode change by topoff"
+	default n
+	help
+	  Say Y to enable s2mu004 mode change by topoff
+	  
+config A10_FACTORY_MAX_SOC
+	bool "enable maximum store mode SOC in factory binary"
+	default n
+	help
+	  Say Y to enable  maximum store mode SOC in factory binary

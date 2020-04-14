@@ -28,11 +28,13 @@ obj-$(CONFIG_SEC_DEBUG_EXTRA_INFO)	+= sec_debug_extra_info.o
 obj-$(CONFIG_SEC_DEBUG_HW_PARAM)	+= sec_debug_hw_param.o
 obj-$(CONFIG_SEC_DEBUG_AUTO_SUMMARY)	+= sec_debug_auto_summary.o
 obj-$(CONFIG_SEC_UPLOAD)		+= sec_upload.o
+obj-$(CONFIG_SEC_DEBUG_INIT_LOG)      += sec_debug_init_log.o
 
 # Samsung TN BSP Options
 obj-$(CONFIG_SEC_PARAM)		+= sec_param.o
 obj-$(CONFIG_SEC_BOOTSTAT)	+= sec_bootstat.o
 obj-$(CONFIG_SEC_INITCALL_DEBUG)+= sec_initcall_debug.o
+obj-$(CONFIG_SEC_RESUME_SUSPEND_DEBUG)+= sec_resume_suspend_debug.o
 obj-$(CONFIG_ARGOS)		+= sec_argos.o
 
 obj-$(CONFIG_SEC_MMIOTRACE)	+= sec_mmiotrace.o
@@ -47,3 +49,5 @@ obj-$(CONFIG_SEC_FD_DETECT) += sec_fd_detect.o
 # Samsung TN NAD Balancer Feature
 obj-$(CONFIG_SEC_NAD_BALANCER)		+= sec_nad_balancer.o
 obj-$(CONFIG_SEC_GPIO)			+= sec_gpio.o
+obj-$(CONFIG_SEC_SPD_ADC)		+= sec_spd_adc.o
+

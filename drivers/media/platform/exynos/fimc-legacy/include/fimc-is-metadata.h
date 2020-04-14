@@ -1751,6 +1751,13 @@ enum camera2_scene_index {
 	SCENE_INDEX_WATERSIDE		= 19,
 	SCENE_INDEX_SCENERY		= 20,
 	SCENE_INDEX_GREENERY	= 21,
+
+	/* For Special SNS Application */
+	SCENE_INDEX_FACEBOOK		= 25,
+	SCENE_INDEX_WECHAT			= 26,
+	SCENE_INDEX_SNAPCHAT		= 27,
+	SCENE_INDEX_TWITTER 		= 28,
+	SCENE_INDEX_INSTAGRAM		= 29,
 };
 
 struct camera2_scene_detect_uctl

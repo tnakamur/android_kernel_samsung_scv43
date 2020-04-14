@@ -1222,6 +1222,12 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 		}
 	}
 
+#ifdef CONFIG_MODEM_IF_NET_GRO
+    if (!(tun->flags & IFF_NO_PI))
+        if (pi.flags & htons(CHECKSUM_UNNECESSARY))
+            skb->ip_summed = CHECKSUM_UNNECESSARY;
+#endif
+
 	switch (tun->flags & TUN_TYPE_MASK) {
 	case IFF_TUN:
 		if (tun->flags & IFF_NO_PI) {
@@ -1569,7 +1575,9 @@ static void tun_setup(struct net_device *dev)
  */
 static int tun_validate(struct nlattr *tb[], struct nlattr *data[])
 {
-	return -EINVAL;
+	/* NL_SET_ERR_MSG(extack,
+		       "tun/tap creation via rtnetlink is not supported."); */
+	return -EOPNOTSUPP;
 }
 
 static struct rtnl_link_ops tun_link_ops __read_mostly = {

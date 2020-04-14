@@ -62,6 +62,7 @@ struct otg_booting_delay {
 struct typec_info {
 	int data_role;
 	int power_role;
+	int pd;
 };
 
 struct usb_notify {
@@ -86,6 +87,7 @@ struct usb_notify {
 	int disable_v_drive;
 	unsigned long c_type;
 	int c_status;
+	int reserve_vbus_booster;
 #if defined(CONFIG_USB_HW_PARAM)
 	unsigned long long hw_param[USB_CCIC_HW_PARAM_MAX];
 #endif
@@ -123,6 +125,8 @@ static int check_event_type(enum otg_notify_events event)
 	case NOTIFY_EVENT_GAMEPAD_CONNECT:
 	case NOTIFY_EVENT_LANHUB_CONNECT:
 	case NOTIFY_EVENT_POWER_SOURCE:
+	case NOTIFY_EVENT_RESERVE_BOOSTER:
+	case NOTIFY_EVENT_PD_CONTRACT:
 		ret |= NOTIFY_EVENT_EXTRA;
 		break;
 	case NOTIFY_EVENT_VBUS:
@@ -235,6 +239,10 @@ const char *event_string(enum otg_notify_events event)
 		return "lanhub_connect";
 	case NOTIFY_EVENT_POWER_SOURCE:
 		return "power_role_source";
+	case NOTIFY_EVENT_RESERVE_BOOSTER:
+		return "reserve_booster";
+	case NOTIFY_EVENT_PD_CONTRACT:
+		return "pd_contract";
 	default:
 		return "undefined";
 	}
@@ -768,6 +776,16 @@ static void otg_notify_state(struct otg_notify *n,
 				u_notify->typec_status.power_role
 							= HNOTIFY_SOURCE;
 			}
+			if (n->auto_drive_vbus == NOTIFY_OP_OFF) {
+				if ((u_notify->typec_status.power_role == HNOTIFY_SOURCE)
+					&& u_notify->reserve_vbus_booster
+					&& !is_blocked(n, NOTIFY_BLOCK_TYPE_HOST)) {
+					pr_info("reserved vbus turn on\n");
+					if (n->vbus_drive)
+						n->vbus_drive(1);
+					u_notify->reserve_vbus_booster = 0;
+				}
+			}
 		} else { /* disable */
 			u_notify->ndev.mode = NOTIFY_NONE_MODE;
 			if (n->auto_drive_vbus == NOTIFY_OP_POST) {
@@ -931,6 +949,14 @@ static void otg_notify_state(struct otg_notify *n,
 			u_notify->is_device = 0;
 		}
 	}
+
+	if (type & NOTIFY_EVENT_NEED_HOST) {
+		if (!enable) {
+			u_notify->is_device = 0;
+			pr_info("%s end host\n", __func__);
+			send_external_notify(EXTERNAL_NOTIFY_DEVICEADD, 0);
+		}
+	}
 err:
 	update_cable_status(n, event, virtual, enable, 0);
 
@@ -999,7 +1025,10 @@ static void extra_notify_state(struct otg_notify *n,
 				(NOTIFY_EVENT_MMD_EXT_CURRENT, enable);
 		break;
 	case NOTIFY_EVENT_DEVICE_CONNECT:
-		u_notify->is_device = 1;
+		if (!u_notify->is_device) {
+			u_notify->is_device = 1;
+			send_external_notify(EXTERNAL_NOTIFY_DEVICEADD, 1);
+		}
 		break;
 	case NOTIFY_EVENT_GAMEPAD_CONNECT:
 		if (u_notify->c_type == NOTIFY_EVENT_HOST ||
@@ -1020,6 +1049,18 @@ static void extra_notify_state(struct otg_notify *n,
 			u_notify->typec_status.power_role = HNOTIFY_SINK;
 		send_external_notify(EXTERNAL_NOTIFY_POWERROLE,
 				u_notify->typec_status.power_role);
+		break;
+	case NOTIFY_EVENT_RESERVE_BOOSTER:
+		if (enable)
+			u_notify->reserve_vbus_booster = 1;
+		else
+			u_notify->reserve_vbus_booster = 0;
+		break;
+	case NOTIFY_EVENT_PD_CONTRACT:
+		if (enable)
+			u_notify->typec_status.pd = enable;
+		else
+			u_notify->typec_status.pd = 0;
 		break;
 	default:
 		break;
@@ -1188,12 +1229,18 @@ int set_notify_disable(struct usb_notify_dev *udev, int disable)
 				event_string(VIRT_EVENT(u_notify->c_type)),
 					VIRT_EVENT(u_notify->c_type));
 
-			if (!n->auto_drive_vbus &&
-				(u_notify->typec_status.power_role
-						== HNOTIFY_SOURCE) &&
-				check_event_type(u_notify->c_type)
-						& NOTIFY_EVENT_NEED_VBUSDRIVE)
-				send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 0);
+			if (is_host_cable_enable(n)) {
+				if (!n->auto_drive_vbus &&
+					(u_notify->typec_status.power_role
+							== HNOTIFY_SOURCE) &&
+					check_event_type(u_notify->c_type)
+							& NOTIFY_EVENT_NEED_VBUSDRIVE)
+					send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 0);
+			} else {
+				if (u_notify->typec_status.power_role
+							== HNOTIFY_SOURCE)
+					send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 0);
+			}
 
 			send_otg_notify(n, VIRT_EVENT(u_notify->c_type), 0);
 		}
@@ -1220,6 +1267,10 @@ int set_notify_disable(struct usb_notify_dev *udev, int disable)
 				send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 0);
 
 			send_otg_notify(n, VIRT_EVENT(u_notify->c_type), 0);
+		} else {
+			if (u_notify->typec_status.power_role
+						== HNOTIFY_SOURCE)
+				send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 0);
 		}
 
 		send_otg_notify(n, NOTIFY_EVENT_HOST_DISABLE, 1);
@@ -1295,12 +1346,18 @@ int set_notify_disable(struct usb_notify_dev *udev, int disable)
 		pr_info("%s event=%s(%lu) enable\n", __func__,
 			event_string(VIRT_EVENT(u_notify->c_type)),
 				VIRT_EVENT(u_notify->c_type));
-		if (!n->auto_drive_vbus &&
-			(u_notify->typec_status.power_role
+		if (is_host_cable_block(n)) {
+			if (!n->auto_drive_vbus &&
+				(u_notify->typec_status.power_role
 						== HNOTIFY_SOURCE) &&
-			check_event_type(u_notify->c_type)
-					& NOTIFY_EVENT_NEED_VBUSDRIVE)
-			send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 1);
+				check_event_type(u_notify->c_type)
+						& NOTIFY_EVENT_NEED_VBUSDRIVE)
+				send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 1);
+		} else {
+			if (u_notify->typec_status.power_role
+						== HNOTIFY_SOURCE)
+				send_otg_notify(n, NOTIFY_EVENT_DRIVE_VBUS, 1);
+		}
 
 		send_otg_notify(n, VIRT_EVENT(u_notify->c_type), 1);
 		break;
@@ -1462,6 +1519,26 @@ void set_notify_mdm(struct usb_notify_dev *udev, int disable)
 		break;
 	}
 }
+
+int get_typec_status(struct otg_notify *n, int event)
+{
+	struct usb_notify *u_notify = (struct usb_notify *)(n->u_notify);
+	int ret = -ENODEV;
+
+	if (u_notify == NULL) {
+		pr_err("u_notify is NULL\n");
+		goto end;
+	}
+
+	if (event == NOTIFY_EVENT_POWER_SOURCE) {
+		/* SINK == 0, SOURCE == 1 */
+		ret = u_notify->typec_status.power_role;
+	} else
+		ret = u_notify->typec_status.pd;
+end:
+	return ret;
+}
+EXPORT_SYMBOL(get_typec_status);
 
 void send_otg_notify(struct otg_notify *n,
 				unsigned long event, int enable)

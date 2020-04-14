@@ -1944,7 +1944,7 @@ int lps22hb_common_probe(struct lps22_prs_data *prs)
 	}
 
 	SENSOR_INFO("Probe ok.\n");
-
+	
 	lps22_prs_device_power_off(prs);
 
 	/* As default, do not report information */

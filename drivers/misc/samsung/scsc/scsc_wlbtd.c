@@ -100,15 +100,6 @@ static int msg_from_wlbtd_sable_cb(struct sk_buff *skb, struct genl_info *info)
 		SCSC_TAG_ERR(WLBTD, "%s\n", response_code_to_str(status));
 	}
 
-	if (disable_recovery_handling == MEMDUMP_FILE_FOR_RECOVERY) {
-		if (status == MEMDUMP_FILE_KERNEL_PANIC) {
-			/* Auto recovery off + moredump + kernel panic */
-			SCSC_TAG_INFO(WLBTD, "Deliberately panic the kernel due to WLBT firmware failure!\n");
-			SCSC_TAG_INFO(WLBTD, "calling BUG_ON(1)\n");
-			BUG_ON(1);
-		}
-	}
-
 	/* completion cases :
 	 * 1) FW_PANIC_TAR_GENERATED
 	 *    for trigger scsc_log_fw_panic only one response from wlbtd when

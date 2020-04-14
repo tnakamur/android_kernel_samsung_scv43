@@ -45,7 +45,7 @@
 #ifdef CONFIG_USE_DIRECT_IS_CONTROL
 #include "fimc-is-interface-wrap.h"
 #endif
-#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR)
+#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR) || defined (USE_MS_PDAF)
 #include "fimc-is-interface-sensor.h"
 #include "fimc-is-device-sensor-peri.h"
 #endif
@@ -636,6 +636,9 @@ void fimc_is_group_subdev_cancel(struct fimc_is_group *group,
 #endif
 				}
 			} while (sub_frame && flush);
+
+			if (sub_vctx->video->try_smp)
+				up(&sub_vctx->video->smp_multi_input);
 		}
 
 		group = group->child;
@@ -905,6 +908,8 @@ static int fimc_is_group_task_start(struct fimc_is_groupmgr *groupmgr,
 
 	if (test_bit(FIMC_IS_GTASK_START, &gtask->state))
 		goto p_work;
+
+	sema_init(&gtask->smp_resource, 0);
 
 	init_kthread_worker(&gtask->worker);
 	snprintf(name, sizeof(name), "fimc_is_gw%d", gtask->id);
@@ -2111,21 +2116,24 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_device_ischain *device;
 	struct fimc_is_device_sensor *sensor;
+	struct fimc_is_group *head;
 	struct fimc_is_group *child;
 	struct fimc_is_subdev *subdev;
 	struct fimc_is_group_task *gtask;
 
 	BUG_ON(!groupmgr);
 	BUG_ON(!group);
+	BUG_ON(!group->head);
 	BUG_ON(!group->device);
 	BUG_ON(!group->leader.vctx);
 	BUG_ON(group->instance >= FIMC_IS_STREAM_COUNT);
 	BUG_ON(group->id >= GROUP_ID_MAX);
 
 	device = group->device;
+	head = group->head;
+	gtask = &groupmgr->gtask[head->id];
 	sensor = device->sensor;
 	framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
-	gtask = &groupmgr->gtask[group->id];
 	if (!framemgr) {
 		mgerr("framemgr is NULL", group, group);
 		goto p_err;
@@ -2144,31 +2152,31 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 
 	retry = 150;
 	while (--retry && framemgr->queued_count[FS_REQUEST]) {
-		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state) &&
-			!list_empty(&group->smp_trigger.wait_list)) {
+		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state) &&
+			!list_empty(&head->smp_trigger.wait_list)) {
 
 			if (!sensor) {
-				mwarn(" sensor is NULL, forcely trigger(pc %d)", device, group->pcount);
-				set_bit(FIMC_IS_GROUP_FORCE_STOP, &group->state);
-				up(&group->smp_trigger);
-			} else if (!test_bit(FIMC_IS_SENSOR_OPEN, &sensor->state)) {
-				mwarn(" sensor is closed, forcely trigger(pc %d)", device, group->pcount);
-				set_bit(FIMC_IS_GROUP_FORCE_STOP, &group->state);
-				up(&group->smp_trigger);
+				mwarn(" sensor is NULL, forcely trigger(pc %d)", device, head->pcount);
+				set_bit(FIMC_IS_GROUP_FORCE_STOP, &head->state);
+				up(&head->smp_trigger);
+			} else if (!test_bit(FIMC_IS_SENSOR_OPEN, &head->state)) {
+				mwarn(" sensor is closed, forcely trigger(pc %d)", device, head->pcount);
+				set_bit(FIMC_IS_GROUP_FORCE_STOP, &head->state);
+				up(&head->smp_trigger);
 			} else if (!test_bit(FIMC_IS_SENSOR_FRONT_START, &sensor->state)) {
-				mwarn(" front is stopped, forcely trigger(pc %d)", device, group->pcount);
-				set_bit(FIMC_IS_GROUP_FORCE_STOP, &group->state);
-				up(&group->smp_trigger);
+				mwarn(" front is stopped, forcely trigger(pc %d)", device, head->pcount);
+				set_bit(FIMC_IS_GROUP_FORCE_STOP, &head->state);
+				up(&head->smp_trigger);
 			} else if (!test_bit(FIMC_IS_SENSOR_BACK_START, &sensor->state)) {
-				mwarn(" back is stopped, forcely trigger(pc %d)", device, group->pcount);
-				set_bit(FIMC_IS_GROUP_FORCE_STOP, &group->state);
-				up(&group->smp_trigger);
+				mwarn(" back is stopped, forcely trigger(pc %d)", device, head->pcount);
+				set_bit(FIMC_IS_GROUP_FORCE_STOP, &head->state);
+				up(&head->smp_trigger);
 			} else if (retry < 100) {
-				merr(" sensor is working but no trigger(pc %d)", device, group->pcount);
-				set_bit(FIMC_IS_GROUP_FORCE_STOP, &group->state);
-				up(&group->smp_trigger);
+				merr(" sensor is working but no trigger(pc %d)", device, head->pcount);
+				set_bit(FIMC_IS_GROUP_FORCE_STOP, &head->state);
+				up(&head->smp_trigger);
 			} else {
-				mwarn(" wating for sensor trigger(pc %d)", device, group->pcount);
+				mwarn(" wating for sensor trigger(pc %d)", device, head->pcount);
 			}
 #ifdef ENABLE_SYNC_REPROCESSING
 		} else if (!test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state)) {
@@ -2182,14 +2190,14 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 #endif
 		}
 
-		mgwarn(" %d reqs waiting...(pc %d) smp_resource(%d)", device, group,
-				framemgr->queued_count[FS_REQUEST], group->pcount,
+		mgwarn(" %d reqs waiting...(pc %d) smp_resource(%d)", device, head,
+				framemgr->queued_count[FS_REQUEST], head->pcount,
 				list_empty(&gtask->smp_resource.wait_list));
 		msleep(20);
 	}
 
 	if (!retry) {
-		mgerr(" waiting(until request empty) is fail(pc %d)", device, group, group->pcount);
+		mgerr(" waiting(until request empty) is fail(pc %d)", device, head, head->pcount);
 		errcnt++;
 	}
 
@@ -2228,22 +2236,22 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 
 	retry = 150;
 	while (--retry && framemgr->queued_count[FS_PROCESS]) {
-		mgwarn(" %d pros waiting...(pc %d)", device, group, framemgr->queued_count[FS_PROCESS], group->pcount);
+		mgwarn(" %d pros waiting...(pc %d)", device, head, framemgr->queued_count[FS_PROCESS], head->pcount);
 		msleep(20);
 	}
 
 	if (!retry) {
-		mgerr(" waiting(until process empty) is fail(pc %d)", device, group, group->pcount);
+		mgerr(" waiting(until process empty) is fail(pc %d)", device, head, head->pcount);
 		errcnt++;
 	}
 
-	rcount = atomic_read(&group->rcount);
+	rcount = atomic_read(&head->rcount);
 	if (rcount) {
-		mgerr(" request is NOT empty(%d) (pc %d)", device, group, rcount, group->pcount);
+		mgerr(" request is NOT empty(%d) (pc %d)", device, head, rcount, head->pcount);
 		errcnt++;
 	}
 	/* the count of request should be clear for next streaming */
-	atomic_set(&group->rcount, 0);
+	atomic_set(&head->rcount, 0);
 
 	child = group;
 	while(child) {
@@ -2289,7 +2297,7 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 		child = child->child;
 	}
 
-	fimc_is_gframe_flush(groupmgr, group);
+	fimc_is_gframe_flush(groupmgr, head);
 
 	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state))
 		mginfo(" sensor fcount: %d, fcount: %d\n", device, group,
@@ -2315,7 +2323,7 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 	struct fimc_is_device_ischain *device;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
-#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR)
+#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR) || defined (USE_MS_PDAF)
 	struct fimc_is_module_enum *module = NULL;
 	struct fimc_is_device_sensor *sensor = NULL;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
@@ -2334,7 +2342,7 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 	framemgr = &queue->framemgr;
 
 	BUG_ON(index >= framemgr->num_frames);
-#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR)
+#if defined(CONFIG_COMPANION_DIRECT_USE) || defined(USE_AP_PDAF) || defined(USE_SENSOR_WDR) || defined (USE_MS_PDAF)
 	sensor = device->sensor;
 	BUG_ON(!sensor);
 
@@ -2409,7 +2417,9 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 
 #ifdef SENSOR_REQUEST_DELAY
 		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state) &&
-			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED)) {
+			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_SDK
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_CAMERAX)) {
 			int req_cnt = 0;
 			struct fimc_is_frame *prev;
 			list_for_each_entry_reverse(prev, &framemgr->queued_list[FS_REQUEST], list) {
@@ -2446,7 +2456,7 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 			&& (device->sensor && !test_bit(FIMC_IS_SENSOR_FRONT_START, &device->sensor->state))) {
 			device->sensor->mode_chg_frame = NULL;
 
-			if (CHK_REMOSAIC_SCN(frame->shot->ctl.aa.sceneMode)) {
+			if (CHK_REMOSAIC_SCN(frame->shot->ctl.aa.captureIntent)) {
 				clear_bit(FIMC_IS_SENSOR_OTF_OUTPUT, &device->sensor->state);
 				device->sensor->mode_chg_frame = frame;
 			} else {
@@ -2491,6 +2501,15 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 #else
 	frame->shot->uctl.isModeUd.paf_mode = CAMERA_PAF_OFF;
 #endif
+
+#if defined (USE_MS_PDAF)
+	if (sensor_peri->cis.use_pdaf) {
+		frame->shot->uctl.isModeUd.paf_mode  = CAMERA_PAF_ON;
+	} else {
+		frame->shot->uctl.isModeUd.paf_mode = CAMERA_PAF_OFF;
+	}
+#endif /* USE_MS_PDAF */
+
 #if defined(USE_SENSOR_WDR)
 	/* WDR */
 	if ((cis_data->is_data.wdr_enable == false) &&

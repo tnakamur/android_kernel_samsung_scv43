@@ -48,6 +48,11 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		goto err;
 	}
 
+#ifdef CONFIG_SAMSUNG_TUI
+	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
+		return -EBUSY;
+#endif
+
 	buf[0] = reg;
 	memcpy(buf + 1, data, len);
 
@@ -105,6 +110,11 @@ int sec_ts_i2c_read(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	struct i2c_msg msg[2];
 	int remain = len;
 	int i;
+
+#ifdef CONFIG_SAMSUNG_TUI
+	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
+		return -EBUSY;
+#endif
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF\n", __func__);
@@ -227,6 +237,11 @@ static int sec_ts_i2c_write_burst(struct sec_ts_data *ts, u8 *data, int len)
 	int retry;
 	int i;
 
+#ifdef CONFIG_SAMSUNG_TUI
+	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
+		return -EBUSY;
+#endif
+
 	mutex_lock(&ts->i2c_mutex);
 	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
 		ret = i2c_master_send(ts->client, data, len);
@@ -269,6 +284,11 @@ static int sec_ts_i2c_read_bulk(struct sec_ts_data *ts, u8 *data, int len)
 	msg.flags = I2C_M_RD;
 	msg.len = len;
 	msg.buf = data;
+
+#ifdef CONFIG_SAMSUNG_TUI
+	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
+		return -EBUSY;
+#endif
 
 	mutex_lock(&ts->i2c_mutex);
 
@@ -366,6 +386,39 @@ void sec_ts_delay(unsigned int ms)
 		msleep(ms);
 }
 
+int sec_ts_set_touch_function(struct sec_ts_data *ts)
+{
+	int ret = 0;
+
+	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->touch_functions), 2);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
+
+	schedule_delayed_work(&ts->work_read_functions, msecs_to_jiffies(30));
+
+	return ret;
+}
+
+void sec_ts_get_touch_function(struct work_struct *work)
+{
+	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
+			work_read_functions.work);
+	int ret = 0;
+
+	ret = sec_ts_i2c_read(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->ic_status), 2);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+				"%s: failed to read touch functions(%d)\n",
+				__func__, ret);
+		return;
+	}
+
+	input_info(true, &ts->client->dev,
+			"%s: touch_functions:%x ic_status:%x\n", __func__,
+			ts->touch_functions, ts->ic_status);
+}
+
 #define DEVICE_ID_RETRY_COUNT 10
 int sec_ts_wait_for_ready(struct sec_ts_data *ts, unsigned int ack)
 {
@@ -446,11 +499,12 @@ void sec_ts_reinit(struct sec_ts_data *ts)
 		if (ret < 0)
 			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
 					__func__, SEC_TS_CMD_SET_COVERTYPE);
+	}
 
-		ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->touch_functions), 2);
-		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-					__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
+	ret = sec_ts_set_touch_function(ts);
+	if (ret < 0) { 
+		input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
 	}
 
 	sec_ts_set_grip_type(ts, ONLY_EDGE_HANDLER);
@@ -842,6 +896,11 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 {
 	struct sec_ts_data *ts = (struct sec_ts_data *)ptr;
 
+#ifdef CONFIG_SAMSUNG_TUI
+	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
+		return IRQ_HANDLED;
+#endif
+
 	mutex_lock(&ts->eventlock);
 
 	sec_ts_read_event(ts);
@@ -895,7 +954,7 @@ int sec_ts_glove_mode_enables(struct sec_ts_data *ts, int mode)
 		goto glove_enable_err;
 	}
 
-	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&ts->touch_functions, 2);
+	ret = sec_ts_set_touch_function(ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Failed to send command", __func__);
 		goto glove_enable_err;
@@ -959,7 +1018,7 @@ int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable)
 		}
 	}
 
-	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->touch_functions), 2);
+	ret = sec_ts_set_touch_function(ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Failed to send command", __func__);
 		goto cover_enable_err;
@@ -1038,7 +1097,6 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	int ret = 0;
 	int count = 0;
 	u32 ic_match_value;
-	int lcdtype = 0;
 #if 0 /*defined(CONFIG_EXYNOS_DECON_FB)*/
 	int connected;
 #endif
@@ -1124,7 +1182,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	}
 #endif
 
-	if (strncmp(pdata->model_name, "G950", 4) == 0)
+	if ((strncmp(pdata->model_name, "G950", 4) == 0) || (strncmp(pdata->model_name, "J737", 4) == 0))
 		pdata->panel_revision = 0;
 	else
 		pdata->panel_revision = ((lcdtype >> 8) & 0xFF) >> 4;
@@ -1134,6 +1192,12 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 
 	if (of_property_read_u32(np, "sec,mis_cal_check", &pdata->mis_cal_check) < 0)
 		pdata->mis_cal_check = 0;
+
+	if (lcdtype == 0x116A01) {
+		input_info(true, &client->dev, "%s : A10 BOE Panel \n", __func__);
+		pdata->firmware_name = "tsp_sec/s6d7at0b01_a10_boe.fw";
+		pdata->bringup = 3;
+	}
 
 	pdata->support_sidegesture = of_property_read_bool(np, "sec,support_sidegesture");
 	pdata->support_dex = of_property_read_bool(np, "support_dex_mode");
@@ -1170,6 +1234,12 @@ static void sec_tclm_parse_dt(struct i2c_client *client, struct sec_tclm_data *t
 	if (of_property_read_u32(np, "sec,afe_base", &tdata->afe_base) < 0) {
 		tdata->afe_base = 0;
 		input_err(true, dev, "%s: Failed to get afe_base property\n", __func__);
+	}
+
+	if (lcdtype == 0x116A01) {
+		input_info(true, &client->dev, "%s : A10 BOE Panel \n", __func__);
+		tdata->tclm_level = 1;
+		tdata->afe_base = 0;
 	}
 
 	input_err(true, &client->dev, "%s: tclm_level %d, sec_afe_base %d\n", __func__, tdata->tclm_level, tdata->afe_base);
@@ -1405,6 +1475,7 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	ts->tdata->tclm_execute_force_calibration = sec_tclm_execute_force_calibration;
 #endif
 	INIT_DELAYED_WORK(&ts->work_read_info, sec_ts_read_info_work);
+	INIT_DELAYED_WORK(&ts->work_read_functions, sec_ts_get_touch_function);
 
 	i2c_set_clientdata(client, ts);
 
@@ -1529,7 +1600,7 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 				deviceID[0], deviceID[1], deviceID[2], deviceID[3], deviceID[4]);
 
 	ts->touch_functions |= SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC;
-	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&ts->touch_functions, 2);
+	ret = sec_ts_set_touch_function(ts);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: Failed to send touch func_mode command", __func__);
 
@@ -1596,6 +1667,9 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	trustedui_set_tsp_irq(client->irq);
 	input_info(true, &client->dev, "%s[%d] called!\n",
 			__func__, client->irq);
+#endif
+#ifdef CONFIG_SAMSUNG_TUI
+	tsp_info = ts;
 #endif
 
 	/* need remove below resource @ remove driver */
@@ -1665,6 +1739,9 @@ error_allocate_pdata:
 #endif
 	ts_dup = NULL;
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
+	tsp_info = NULL;
+#endif
+#ifdef CONFIG_SAMSUNG_TUI
 	tsp_info = NULL;
 #endif
 	input_err(true, &client->dev, "%s: failed(%d)\n", __func__, ret);
@@ -1867,6 +1944,11 @@ static void sec_ts_input_close(struct input_dev *dev)
 #ifdef MINORITY_REPORT
 	minority_report_sync_latest_value(ts);
 #endif
+
+#ifdef CONFIG_SAMSUNG_TUI
+	stui_cancel_session();
+#endif
+
 	sec_ts_stop_device(ts);
 
 	ts->abc_err_flag = true;
@@ -1912,6 +1994,7 @@ static int sec_ts_remove(struct i2c_client *client)
 
 	cancel_delayed_work_sync(&ts->work_read_info);
 	flush_delayed_work(&ts->work_read_info);
+	cancel_delayed_work_sync(&ts->work_read_functions);
 
 	disable_irq_nosync(ts->client->irq);
 	free_irq(ts->client->irq, ts);
@@ -1944,6 +2027,9 @@ static int sec_ts_remove(struct i2c_client *client)
 	ts_dup = NULL;
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
+	tsp_info = NULL;
+#endif
+#ifdef CONFIG_SAMSUNG_TUI
 	tsp_info = NULL;
 #endif
 
@@ -2026,7 +2112,7 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 	}
 
 	ts->touch_functions = ts->touch_functions | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC;
-	ret = sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&ts->touch_functions, 2);
+	ret = sec_ts_set_touch_function(ts);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: Failed to send touch function command", __func__);
@@ -2135,6 +2221,47 @@ void trustedui_mode_off(void)
 		return;
 }
 EXPORT_SYMBOL(trustedui_mode_off);
+#endif
+
+#ifdef CONFIG_SAMSUNG_TUI
+extern int stui_i2c_lock(struct i2c_adapter *adap);
+extern int stui_i2c_unlock(struct i2c_adapter *adap);
+
+int stui_tsp_enter(void)
+{
+	int ret = 0;
+
+	if (!tsp_info)
+		return -EINVAL;
+
+	disable_irq(tsp_info->client->irq);
+	sec_ts_unlocked_release_all_finger(tsp_info);
+
+	ret = stui_i2c_lock(tsp_info->client->adapter);
+	if (ret) {
+		pr_err("[STUI] stui_i2c_lock failed : %d\n", ret);
+		enable_irq(tsp_info->client->irq);
+		return -1;
+	}
+
+	return 0;
+}
+
+int stui_tsp_exit(void)
+{
+	int ret = 0;
+
+	if (!tsp_info)
+		return -EINVAL;
+
+	ret = stui_i2c_unlock(tsp_info->client->adapter);
+	if (ret)
+		pr_err("[STUI] stui_i2c_unlock failed : %d\n", ret);
+
+	enable_irq(tsp_info->client->irq);
+
+	return ret;
+}
 #endif
 
 static const struct i2c_device_id sec_ts_id[] = {

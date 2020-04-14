@@ -55,6 +55,7 @@
 
 #define DIFF_READ_NUM            10
 #define GRIP_LOG_TIME            15 /* 30 sec */
+#define ZERO_DETECT_TIME         5 /* 10 sec */
 
 /* CS Main */
 #define ENABLE_CSX               0x03
@@ -114,6 +115,7 @@ struct sx9360_p {
 	s16 max_normal_diff;
 
 	int debug_count;
+	int debug_zero_count;
 	char hall_ic[6];
 };
 
@@ -321,10 +323,32 @@ static void sx9360_get_data(struct sx9360_p *data)
 	u16 offset = 0;
 	s32 capMain = 0, useful = 0;
 	s16 avg = 0, diff = 0;
+	s16 retry = 0;
+	u8 convstat = 0;
 
 	mutex_lock(&data->read_mutex);
 
 	sx9360_get_gain(data);
+
+	while(1)
+	{
+		sx9360_i2c_read(data, SX9360_STAT_REG, &convstat);
+		convstat &= 0x01;
+
+		if(++retry > 5 || convstat == 0)
+			break;
+
+		usleep_range(10000, 11000);
+	}
+	pr_info("[SX9360_WIFI]: %s retry : %d, CONVSTAT : %u\n", __func__, retry, convstat);
+
+	/* diff read */
+	sx9360_i2c_read(data, SX9360_REGDIFFMSBPHM, &msByte);
+	sx9360_i2c_read(data, SX9360_REGDIFFLSBPHM, &lsByte);
+
+	diff = (s16)msByte;
+	diff = (diff << 8) | ((s16)lsByte);
+
 
 	/* Calculate out the Main Cap information */
 	sx9360_i2c_read(data, SX9360_REGUSEMSBPHM, &msByte);
@@ -343,23 +367,16 @@ static void sx9360_get_data(struct sx9360_p *data)
 
 	msByte = (u8)((offset >> 7) & 0x7F);
 	lsByte = (u8)((offset)      & 0x7F);
-	
+
 	capMain = (((s32)msByte * 30000) + ((s32)lsByte * 500)) +
-            		(((s32)useful * data->again_m) / (data->dgain_m * 32768));
+            		(s32)(((s64)useful * data->again_m) / (data->dgain_m * 32768));
 
 	/* avg read */
 	sx9360_i2c_read(data, SX9360_REGAVGMSBPHM, &msByte);
-	sx9360_i2c_read(data, SX9360_REGUSELSBPHM, &lsByte);
+	sx9360_i2c_read(data, SX9360_REGAVGLSBPHM, &lsByte);
 
 	avg = (s16)msByte;
 	avg = (avg << 8) | ((s16)lsByte);
-
-	/* diff read */
-	sx9360_i2c_read(data, SX9360_REGDIFFMSBPHM, &msByte);
-	sx9360_i2c_read(data, SX9360_REGDIFFLSBPHM, &lsByte);
-
-	diff = (s16)msByte;
-	diff = (diff << 8) | ((s16)lsByte);
 
 	data->useful = useful;
 	data->offset = offset;
@@ -388,7 +405,7 @@ static int sx9360_set_mode(struct sx9360_p *data, unsigned char mode)
 		msleep(20);
 
 		sx9360_set_offset_calibration(data);
-		msleep(400);
+		msleep(450);
 	}
 
 	pr_info("[SX9360_WIFI]: %s - change the mode : %u\n", __func__, mode);
@@ -464,6 +481,7 @@ static void sx9360_set_debug_work(struct sx9360_p *data, u8 enable,
 {
 	if (enable == ON) {
 		data->debug_count = 0;
+		data->debug_zero_count = 0;
 		schedule_delayed_work(&data->debug_work,
 			msecs_to_jiffies(time_ms));
 	} else {
@@ -505,7 +523,7 @@ static ssize_t sx9360_register_write_store(struct device *dev,
 	int regist = 0, val = 0;
 	struct sx9360_p *data = dev_get_drvdata(dev);
 
-	if (sscanf(buf, "%d,%d", &regist, &val) != 2) {
+	if (sscanf(buf, "%2x,%2x", &regist, &val) != 2) {
 		pr_err("[SX9360_WIFI]: %s - The number of data are wrong\n",
 			__func__);
 		return -EINVAL;
@@ -518,24 +536,23 @@ static ssize_t sx9360_register_write_store(struct device *dev,
 	return count;
 }
 
-static ssize_t sx9360_register_read_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t sx9360_register_read_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
 {
-	int regist = 0;
-	unsigned char val = 0;
+	u8 val = 0;
+	int offset = 0, idx = 0;
 	struct sx9360_p *data = dev_get_drvdata(dev);
 
-	if (sscanf(buf, "%d", &regist) != 1) {
-		pr_err("[SX9360_WIFI]: %s - The number of data are wrong\n",
-			__func__);
-		return -EINVAL;
+	for (idx = 0; idx < (int)(ARRAY_SIZE(setup_reg)); idx++) {
+		sx9360_i2c_read(data, setup_reg[idx].reg, &val);
+		pr_info("[SX9360_WIFI]: %s - Read Reg: 0x%x Value: 0x%x\n\n",
+			__func__, setup_reg[idx].reg, val);
+
+		offset += snprintf(buf + offset, PAGE_SIZE - offset,
+		"Reg: 0x%x Value: 0x%08x\n", setup_reg[idx].reg, val);
 	}
 
-	sx9360_i2c_read(data, (unsigned char)regist, &val);
-	pr_info("[SX9360_WIFI]: %s - Register(0x%2x) data(0x%2x)\n",
-		__func__, regist, val);
-
-	return count;
+	return offset;
 }
 
 static ssize_t sx9360_read_data_show(struct device *dev,
@@ -555,7 +572,7 @@ static ssize_t sx9360_sw_reset_show(struct device *dev,
 
 	pr_info("[SX9360_WIFI]: %s\n", __func__);
 	sx9360_set_offset_calibration(data);
-	msleep(400);
+	msleep(450);
 	sx9360_get_data(data);
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", 0);
@@ -873,13 +890,13 @@ static ssize_t sx9360_normal_threshold_show(struct device *dev,
 
 	switch (hyst) {
 	case 0x01: /* 6% */
-		hyst = th_buf >> 4;
+		hyst = threshold >> 4;
 		break;
 	case 0x02: /* 12% */
-		hyst = th_buf >> 3;
+		hyst = threshold >> 3;
 		break;
 	case 0x03: /* 25% */
-		hyst = th_buf >> 2;
+		hyst = threshold >> 2;
 		break;
 	default:
 		/* None */
@@ -911,9 +928,14 @@ static ssize_t sx9360_onoff_store(struct device *dev,
 		return ret;
 	}
 
-	if (val == 0)
+	if (val == 0) {
 		data->skip_data = true;
-	else
+		if (atomic_read(&data->enable) == ON) {
+			data->state = IDLE;
+			input_report_rel(data->input, REL_MISC, 2);
+			input_sync(data->input);
+		}
+	} else
 		data->skip_data = false;
 
 	pr_info("[SX9360_WIFI]: %s -%u\n", __func__, val);
@@ -925,8 +947,7 @@ static DEVICE_ATTR(menual_calibrate, S_IRUGO | S_IWUSR | S_IWGRP,
 		sx9360_set_offset_calibration_store);
 static DEVICE_ATTR(register_write, S_IWUSR | S_IWGRP,
 		NULL, sx9360_register_write_store);
-static DEVICE_ATTR(register_read, S_IWUSR | S_IWGRP,
-		NULL, sx9360_register_read_store);
+static DEVICE_ATTR(register_read, S_IRUGO, sx9360_register_read_show, NULL);
 static DEVICE_ATTR(readback, S_IRUGO, sx9360_read_data_show, NULL);
 static DEVICE_ATTR(reset, S_IRUGO, sx9360_sw_reset_show, NULL);
 
@@ -1081,12 +1102,33 @@ static void sx9360_init_work_func(struct work_struct *work)
 	struct sx9360_p *data = container_of((struct delayed_work *)work,
 		struct sx9360_p, init_work);
 
+	int retry = 0;
+
 	sx9360_initialize_chip(data);
 
 	sx9360_set_mode(data, SX9360_MODE_NORMAL);
 	/* make sure no interrupts are pending since enabling irq
 	 * will only work on next falling edge */
 	sx9360_read_irqstate(data);
+	msleep(20);
+
+	while(retry++ < 10) {
+		sx9360_get_data(data);
+		/* Defence code */
+		if (data->capMain == 0 && data->avg == 0 && data->diff == 0
+			&& data->useful == 0 && data->offset == 0) {
+			pr_info("[SX9360]: Defence code for grip sensor - retry: %d\n", retry);
+
+			sx9360_i2c_write(data, SX9360_SOFTRESET_REG, SX9360_SOFTRESET);
+			msleep(300);
+			sx9360_initialize_chip(data);
+			sx9360_set_mode(data, SX9360_MODE_NORMAL);
+			sx9360_read_irqstate(data);
+			msleep(20);
+		} else {
+			break;
+		}
+	}
 }
 
 static void sx9360_irq_work_func(struct work_struct *work)
@@ -1101,11 +1143,31 @@ static void sx9360_irq_work_func(struct work_struct *work)
 			__func__, sx9360_get_nirq_state(data));
 }
 
+static void sx9360_read_register(struct sx9360_p *data)
+{
+	u8 val, offset = 0;
+	int array_size, idx = 0;
+	char buf[52] = {0,};
+
+	array_size = (int)(ARRAY_SIZE(setup_reg));
+	while (idx < array_size) {
+		sx9360_i2c_read(data, setup_reg[idx].reg, &val);
+		offset += snprintf(buf + offset, sizeof(buf) - offset, "[0x%02x]:0x%02x ", setup_reg[idx].reg, val);
+		idx++;
+		if(!(idx & 0x03) || (idx == array_size)) {
+			pr_info("[SX9360_WIFI]: %s - %s\n", __func__, buf);
+			offset = 0;
+		}
+	}
+}
+
 static void sx9360_debug_work_func(struct work_struct *work)
 {
 	struct sx9360_p *data = container_of((struct delayed_work *)work,
 		struct sx9360_p, debug_work);
 	static int hall_flag = 1;
+	int ret;
+	u8 value = 0;
 
 #if defined(CONFIG_FOLDER_HALL)
 	char str[2] = "0";
@@ -1141,6 +1203,27 @@ static void sx9360_debug_work_func(struct work_struct *work)
 				data->debug_count++;
 			}
 		}
+	}
+
+	/* Zero Detect Defence code*/
+	if(data->debug_zero_count >= ZERO_DETECT_TIME) {
+		ret = sx9360_i2c_read(data, SX9360_GNRLCTRL0_REG, &value);
+		if (ret < 0)
+			pr_err("[SX9360_WIFI]: fail to read PHEN :0x%02x (%d)\n", value, ret);
+		else if (value == 0) {
+			pr_info("[SX9360_WIFI]: %s - detected all data zero!!!\n", __func__);
+			sx9360_read_register(data);
+
+			sx9360_i2c_write(data, SX9360_SOFTRESET_REG, SX9360_SOFTRESET);
+			msleep(300);
+			sx9360_initialize_chip(data);
+			sx9360_set_mode(data, SX9360_MODE_NORMAL);
+			sx9360_read_irqstate(data);
+			msleep(20);
+		}
+		data->debug_zero_count = 0;
+	} else {
+		data->debug_zero_count++;
 	}
 
 	schedule_delayed_work(&data->debug_work, msecs_to_jiffies(2000));
@@ -1239,7 +1322,7 @@ static int sx9360_read_setupreg(struct device_node *dnode, char *str, u32 *val)
 	if (!ret)
 		*val = temp_val;
 	else
-		pr_err("[SX9330]: %s - %s: property read err 0x%08x (%d)\n",
+		pr_err("[SX9360_WIFI]: %s - %s: property read err 0x%08x (%d)\n",
 			__func__, str, temp_val, ret);
 
 	return ret;
@@ -1254,10 +1337,13 @@ static int sx9360_parse_dt(struct sx9360_p *data, struct device *dev)
 	u32 reggnrlctrl2;
 	u32 regafeparam1phm;
 	u32 regproxctrl0phm;
+	u32 regproxctrl0phr;
 	u32 regproxctrl5;
 	u32 regproxctrl4;
 	u32 regproxctrl3;
 	u32 regafeparam0phm;
+	u32 regafeparam1phr;
+	u32 regafeparam0phr;
 
 	if (dNode == NULL)
 		return -ENODEV;
@@ -1275,6 +1361,8 @@ static int sx9360_parse_dt(struct sx9360_p *data, struct device *dev)
 		setup_reg[SX9360_AFE_REG_IDX + 4].val = regafeparam1phm;
 	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regproxctrl0phm", &regproxctrl0phm))
 		setup_reg[SX9360_PROXCTRL_REG_IDX + 1].val = regproxctrl0phm;
+	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regproxctrl0phr", &regproxctrl0phr))
+		setup_reg[SX9360_PROXCTRL_REG_IDX].val = regproxctrl0phr;
 	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regproxctrl5", &regproxctrl5))
 		setup_reg[SX9360_PROXCTRL_REG_IDX + 6].val = regproxctrl5;
 	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regproxctrl4", &regproxctrl4))
@@ -1283,6 +1371,10 @@ static int sx9360_parse_dt(struct sx9360_p *data, struct device *dev)
 		setup_reg[SX9360_PROXCTRL_REG_IDX + 4].val = regproxctrl3;
 	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regafeparam0phm", &regafeparam0phm))
 		setup_reg[SX9360_AFE_REG_IDX + 3].val = regafeparam0phm;
+	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regafeparam1phr", &regafeparam1phr))
+		setup_reg[SX9360_AFE_REG_IDX + 2].val = regafeparam1phr;
+	if (!sx9360_read_setupreg(dNode, "sx9360_wifi,regafeparam0phr", &regafeparam0phr))
+		setup_reg[SX9360_AFE_REG_IDX + 1].val = regafeparam0phr;
 
 	ret = of_property_read_u32(dNode, "sx9360_wifi,hallic_detect", &data->hallic_detect);
 	if (ret < 0)

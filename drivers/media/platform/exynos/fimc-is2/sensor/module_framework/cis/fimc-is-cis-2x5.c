@@ -183,7 +183,7 @@ void sensor_2x5_cis_print_burst_calbuf(u32 *burst_buf, size_t sz)
 {
 	u32 nr = sz / 3;
 	int i, line;
-	
+
 	info("%s: buf-size %d, line %d\n", __func__, (int)sz, nr);
 
 	for (i = 0, line = 0; i < sz; line++) {
@@ -340,7 +340,7 @@ int sensor_2x5_cis_create_burst_cal(u32 *burst_buf)
 
 #ifdef DEBUG_BURSTBUF_MEM
 	info("%s: Last index %d, Addr 0x%p\n", __func__, burst_index, end_addr);
-	if (index != (burst_index * 3) || burst_index != SENSOR_2X5_BURST_CAL_NR_RAW 
+	if (index != (burst_index * 3) || burst_index != SENSOR_2X5_BURST_CAL_NR_RAW
 	  || &burst_cal_buf[BURST_BUF_SIZE] != end_addr) {
 		err("check Burst Cal. Buf-Sz=%d, index=%d, burst_index=%d end addr 0x%p, 0x%p",
 			BURST_BUF_SIZE, index, burst_index, &burst_cal_buf[BURST_BUF_SIZE], end_addr);
@@ -539,6 +539,10 @@ int sensor_2x5_cis_init(struct v4l2_subdev *subdev)
 	u32 setfile_index = 0;
 	cis_setting_info setinfo = {NULL, 0};
 	int ret = 0;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+#endif
 
 	BUG_ON(!subdev);
 
@@ -555,6 +559,13 @@ int sensor_2x5_cis_init(struct v4l2_subdev *subdev)
 
 	ret = sensor_cis_check_rev(cis);
 	if (ret < 0) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+		sensor_peri = container_of(cis, struct fimc_is_device_sensor_peri, cis);
+		if (sensor_peri)
+			fimc_is_sec_get_hw_param(&hw_param, sensor_peri->module->position);
+		if (hw_param)
+			hw_param->i2c_sensor_err_cnt++;
+#endif
 		warn("sensor_2x5_check_rev is fail when cis init");
 		cis->rev_flag = true;
 		ret = 0;
@@ -2154,7 +2165,7 @@ int sensor_2x5_cis_set_wb_gain(struct v4l2_subdev *subdev, struct wb_gains wb_ga
 		err("gr, gb not euqal"); /* check DDK layer */
 		return -EINVAL;
 	}
-	
+
 	if (wb_gains.gr == 1024)
 		div = 4;
 	else if (wb_gains.gr == 2048)

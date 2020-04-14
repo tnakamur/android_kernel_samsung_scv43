@@ -32,6 +32,7 @@ extern int cod3035x_jack_mic_register(struct snd_soc_codec *codec);
 #define MODEL_FLAG_5PIN_JACK			0x04
 #define MODEL_FLAG_5PIN_AUX_DET			0x08
 #define MODEL_FLAG_5PIN_BTN_DELAY		0x10
+#define MODEL_FLAG_JACKOUT_TDMA_NOISE	0x20
 #define MODEL_FLAG_5PIN_ANT 			0x40
 
 #define COD3035X_OTP_MAX_REG		0x0f
@@ -70,6 +71,7 @@ struct cod3035x_jack_det {
 	int prev_jack_det_status;
 	bool ant_det;
 	bool ant_irq;
+	int ignore_ext_ant;
 #endif
 	bool surge_det;
 	unsigned int button_code;
@@ -98,6 +100,8 @@ struct cod3035x_priv {
 	int num_inputs;
 	int int_gpio;
 
+	int dtv_check_gpio;
+	bool dtv_detect;
 #ifdef CONFIG_SND_SOC_COD30XX_EXT_ANT
 	int ant_det_gpio;
 	int ant_adc_range;
@@ -142,6 +146,7 @@ struct cod3035x_priv {
 	int aux_cable_detect_adc;
 	unsigned int jackout_dbnc_time;
 	unsigned int jackin_dbnc_time;
+	unsigned int jackin_ldet_vth;
 	int water_finish_chk_adc_min;
 	struct jack_buttons_zone jack_buttons_zones[4];
 	struct work_struct buttons_work;
@@ -162,6 +167,8 @@ struct cod3035x_priv {
 	int adc_pin;
 	unsigned int lvol;
 	unsigned int rvol;
+	unsigned int dmic1_lmux;
+	unsigned int dmic1_rmux;
 	unsigned int mic_status;
 	unsigned int rcv_drv_current;
 	unsigned int model_feature_flag;
@@ -1222,6 +1229,9 @@ struct cod3035x_priv {
 #define ADC2_MUTE_AD_EN_MASK	BIT(ADC2_MUTE_AD_EN_SHIFT)
 
 /* COD3035X_4E_DMIC3 */
+#define DMIC_CLK_ZTE_SHIFT	7
+#define DMIC_CLK_ZTE_MASK	BIT(DMIC_CLK_ZTE_SHIFT)
+
 #define SEL_DMIC_2L_SHIFT	4
 #define SEL_DMIC_2L_WIDTH	3
 #define SEL_DMIC_2L_MASK		MASK(SEL_DMIC_2L_WIDTH, SEL_DMIC_2L_SHIFT)

@@ -898,12 +898,14 @@ struct s2mm005_data {
 	struct typec_partner *partner;
 	struct usb_pd_identity partner_identity;
 	struct typec_capability typec_cap;
-	struct completion role_reverse_completion;
+	struct completion typec_reverse_completion;
 	int typec_power_role;
 	int typec_data_role;
 	int typec_try_state_change;
+	int pwr_opmode;
 	struct delayed_work typec_role_swap_work;
 #endif
+	bool pd_support;
 	int s2mm005_fw_product_id;
 	u8 fw_product_id;
 

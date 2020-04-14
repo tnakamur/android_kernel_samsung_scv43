@@ -893,6 +893,7 @@ static ssize_t fts_get_cmoffset_dump(struct fts_ts_info *info, char *buf, u8 pos
 		return snprintf(buf, info->proc_size, "NG, mem alloc failed");
 	}
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
 
 	fts_interrupt_set(info, INT_DISABLE);
@@ -972,7 +973,7 @@ static ssize_t fts_get_cmoffset_dump(struct fts_ts_info *info, char *buf, u8 pos
 out:
 	input_err(true, &info->client->dev, "%s: pos:%d, buf size:%d\n", __func__, position, strlen(buf));
 
-	fts_interrupt_set(info, INT_ENABLE);
+	fts_set_scanmode(info, info->scan_mode);
 	kfree(rbuff);
 	return strlen(buf);
 }
@@ -1082,6 +1083,16 @@ static void fw_update(void *device_data)
 	int retval = 0;
 
 	sec_cmd_set_default_result(sec);
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+	if (sec->cmd_param[0] == 1) {
+		snprintf(buff, sizeof(buff), "%s", "OK");
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec->cmd_state = SEC_CMD_STATUS_OK;
+		input_info(true, &info->client->dev, "%s: user_ship, success\n", __func__);
+		return;
+	}
+#endif
+
 	if (info->fts_power_state == FTS_POWER_STATE_POWERDOWN) {
 		input_err(true, &info->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
@@ -1278,6 +1289,10 @@ void fts_get_sec_ito_test_result(struct fts_ts_info *info)
 	u8 buff[100] = { 0 };
 	u8 pos_buf[6] = { 0 };
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
+	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
+	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 	regAdd[0] = 0xA4;
 	regAdd[1] = 0x06;
 	regAdd[2] = 0x94;
@@ -1349,6 +1364,7 @@ void fts_get_sec_ito_test_result(struct fts_ts_info *info)
 			__func__, result[max_count].num_of_test);
 
 done:
+	fts_set_scanmode(info, info->scan_mode);
 	if (sec->cmd_all_factory_state != SEC_CMD_STATUS_RUNNING)
 		return;
 
@@ -1377,6 +1393,10 @@ int fts_set_sec_ito_test_result(struct fts_ts_info *info)
 		goto out;
 	}
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
+	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
+	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 	regAdd[0] = 0xC7;
 	regAdd[1] = 0x06;
 	regAdd[2] = info->factory_position;
@@ -1402,10 +1422,12 @@ int fts_set_sec_ito_test_result(struct fts_ts_info *info)
 		goto out;
 	}
 
+	fts_set_scanmode(info, info->scan_mode);
 	input_info(true, &info->client->dev, "%s: position %d result is saved\n", __func__, info->factory_position);
 	return 0;
 
 out:
+	fts_set_scanmode(info, info->scan_mode);
 	if (sec->cmd_all_factory_state != SEC_CMD_STATUS_RUNNING)
 		return ret;
 
@@ -2328,6 +2350,7 @@ static void fts_read_ix_data(struct fts_ts_info *info, bool allnode)
 		goto out;
 	}
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 
 	fts_release_all_finger(info);
@@ -2350,10 +2373,10 @@ static void fts_read_ix_data(struct fts_ts_info *info, bool allnode)
 	if (rc < 0) {
 		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		fts_interrupt_set(info, INT_ENABLE);
 		goto out;
 	}
-	fts_interrupt_set(info, INT_ENABLE);
+
+	fts_set_scanmode(info, info->scan_mode);
 
 	// Read Header
 	regAdd[0] = 0xA6;
@@ -2470,6 +2493,7 @@ static void fts_read_ix_data(struct fts_ts_info *info, bool allnode)
 		}
 	}
 out:
+	fts_set_scanmode(info, info->scan_mode);
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
 		char ret_buff[SEC_CMD_STR_LEN] = { 0 };
 		snprintf(ret_buff, sizeof(ret_buff), "%d,%d", min_rx_ix_sum, max_rx_ix_sum);
@@ -2776,6 +2800,7 @@ static int read_ms_cx_data(struct fts_ts_info *info, u8 *cx_min, u8 *cx_max)
 	if (pStr == NULL)
 		return -ENOMEM;
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 	fts_release_all_finger(info);
 
@@ -2796,7 +2821,6 @@ static int read_ms_cx_data(struct fts_ts_info *info, u8 *cx_min, u8 *cx_max)
 	regAdd[1] = 0x00;
 	regAdd[2] = 0x00;
 	info->fts_read_reg(info, &regAdd[0], 3, &rdata[0], FTS_COMP_DATA_HEADER_SIZE);
-	fts_interrupt_set(info, INT_ENABLE);
 
 	if ((rdata[0] != 0xA5) && (rdata[1] != dataID)) {
 		input_info(true, &info->client->dev, "%s: failed to read signature data of header.\n", __func__);
@@ -2833,6 +2857,7 @@ static int read_ms_cx_data(struct fts_ts_info *info, u8 *cx_min, u8 *cx_max)
 		memcpy(&info->cx_data[0], &rdata[0], info->ForceChannelLength * info->SenseChannelLength);
 
 out:
+	fts_set_scanmode(info, info->scan_mode);
 	kfree(pStr);
 	return ret;
 }
@@ -4591,9 +4616,11 @@ int set_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *bu
 	u8 remaining, index, sendinglength;
 	int ret;
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 
 	fts_release_all_finger(info);
+	fts_interrupt_set(info, INT_DISABLE);
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
 	if (info->board->support_mskey)
@@ -4623,12 +4650,11 @@ int set_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *bu
 		if (ret < 0) {
 			input_err(true, &info->client->dev,
 					"%s: write failed. ret: %d\n", __func__, ret);
-			return ret;
+			goto out;
 		}
 		remaining -= sendinglength;
 	}
 
-	fts_interrupt_set(info, INT_DISABLE);
 
 	// Save to flash
 	regAdd[0] = 0xA4;
@@ -4648,7 +4674,7 @@ int set_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *bu
 				"%s: failed to get echo. ret: %d\n", __func__, ret);
 
 out:
-	fts_interrupt_set(info, INT_ENABLE);
+	fts_set_scanmode(info, info->scan_mode);
 
 	return ret;
 }
@@ -4663,6 +4689,7 @@ int get_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *nv
 	u8 regAdd[3] = {0};
 	u8 data[128] = { 0 };
 	int ret;
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
 
 	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 
@@ -4682,19 +4709,16 @@ int get_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *nv
 	if (ret < 0) {
 		input_err(true, &info->client->dev,
 				"%s: write failed. ret: %d\n", __func__, ret);
-		fts_interrupt_set(info, INT_ENABLE);
-		return ret;
+		goto out;
 	}
 
 	ret = fts_fw_wait_for_echo_event(info, &regAdd[0], 3);
 	if (ret < 0) {
 		input_err(true, &info->client->dev,
 				"%s: timeout. ret: %d\n", __func__, ret);
-		fts_interrupt_set(info, INT_ENABLE);
-		return ret;
+		goto out;
 	}
 
-	fts_interrupt_set(info, INT_ENABLE);
 
 	regAdd[0] = 0xA6;
 	regAdd[1] = 0x00;
@@ -4704,13 +4728,15 @@ int get_nvm_data_by_size(struct fts_ts_info *info, u8 offset, int length, u8 *nv
 	if (ret < 0) {
 		input_err(true, &info->client->dev,
 				"%s: read failed. ret: %d\n", __func__, ret);
-		return ret;
+		goto out;
 	}
 
 	memcpy(nvdata, &data[0], length);
 
 	input_raw_info(true, &info->client->dev, "%s: offset [%d], length [%d]\n",
  			__func__, offset, length);
+out:
+	fts_set_scanmode(info, info->scan_mode);
 
 	return ret;
 }

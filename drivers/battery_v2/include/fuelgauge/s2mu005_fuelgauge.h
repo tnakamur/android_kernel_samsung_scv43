@@ -98,12 +98,15 @@ struct sec_fg_info {
 
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
 struct fg_age_data_info {
-        int battery_table3[88]; // evt2
-        int battery_table4[22]; // evt2
-        int batcap[4];
-        int accum[2];
+	int battery_table3[88]; // evt2
+	int battery_table4[22]; // evt2
+	int batcap[4];
+	int accum[2];
 	int soc_arr_val[22];
-        int ocv_arr_val[22];
+	int ocv_arr_val[22];
+#if defined(CONFIG_S2MU005_VOLT_MODE_TUNING)
+	int volt_mode_tunning;
+#endif
 };
 
 #define	fg_age_data_info_t \
@@ -143,6 +146,7 @@ struct s2mu005_fuelgauge_data {
 	int mode;
 	u8 revision;
 	int change_step;
+	int topoff_current;
 
 	/* HW-dedicated fuelgauge info structure
 	 * used in individual fuelgauge file only

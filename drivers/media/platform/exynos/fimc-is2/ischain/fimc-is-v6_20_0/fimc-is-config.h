@@ -55,9 +55,11 @@
 /* #define ENABLE_DRC */
 /* #define ENABLE_DIS */
 /* #define ENABLE_DNR_IN_TPU */
+#ifndef DISABLE_TDNR_IN_MCSC
 #define ENABLE_DNR_IN_MCSC
 #define ENABLE_DNR_COMPRESSOR_IN_MCSC
 #define MCSC_TDNR_YIC_MODE	(0)	/* enc/dec_mode> 0: compression, 1: raw mode */
+#endif	//DISABLE_TDNR_IN_MCSC
 #define ENABLE_10BIT_MCSC
 /* #define ENABLE_DJAG_IN_MCSC */
 #define ENABLE_VRA

@@ -117,6 +117,7 @@ static int s2mu004_charger_otg_control(
 			S2MU004_CHG_CTRL0, CHG_MODE, REG_MODE_MASK);
 		s2mu004_update_reg(charger->i2c, 0xAE, 0x80, 0xF0);
 	} else {
+#if 0
 		if (charger->is_charging) {
 			pr_info("%s: Charger is enabled and OTG Enabled received. Skip OTG Enable\n", __func__);
 			pr_info("%s: is_charging: %d, otg_on: %d",
@@ -128,6 +129,8 @@ static int s2mu004_charger_otg_control(
 			mutex_unlock(&charger->charger_mutex);
 			return 0;
 		}
+#endif
+
 #ifndef CONFIG_SEC_FACTORY
 		s2mu004_update_reg(charger->i2c, S2MU004_CHG_CTRL7, 0x0 << SET_VF_VBYP_SHIFT, SET_VF_VBYP_MASK);
 #endif
@@ -570,8 +573,11 @@ static void s2mu004_set_topoff_current(
 	int eoc_1st_2nd, int current_limit)
 {
 	int data;
+	union power_supply_propval value;
+	struct power_supply *psy;
 
 	pr_info("[DEBUG]%s: current  %d\n", __func__, current_limit);
+	
 	if (current_limit <= 100)
 		data = 0;
 	else if (current_limit > 100 && current_limit <= 475)
@@ -583,6 +589,13 @@ static void s2mu004_set_topoff_current(
 	case 1:
 		s2mu004_update_reg(charger->i2c, S2MU004_CHG_CTRL11,
 			data << FIRST_TOPOFF_CURRENT_SHIFT, FIRST_TOPOFF_CURRENT_MASK);
+		psy = power_supply_get_by_name(charger->pdata->fuelgauge_name);
+		if (!psy)
+			pr_err("%s, fail to set topoff current to FG\n", __func__);
+		else {
+			value.intval = current_limit;
+			power_supply_set_property(psy, POWER_SUPPLY_PROP_CURRENT_FULL, &value);
+		}
 		break;
 	case 2:
 		s2mu004_update_reg(charger->i2c, S2MU004_CHG_CTRL11,
@@ -656,9 +669,9 @@ static bool s2mu004_chg_init(struct s2mu004_charger_data *charger)
 	s2mu004_update_reg(charger->i2c, S2MU004_REG_SELFDIS_CFG3,
 			SELF_DISCHG_MODE_MASK, SELF_DISCHG_MODE_MASK);
 
-	/* Set Top-Off timer to 30 minutes */
+	/* Set Top-Off timer to 90 minutes */
 	s2mu004_update_reg(charger->i2c, S2MU004_CHG_CTRL17,
-			S2MU004_TOPOFF_TIMER_30m << TOP_OFF_TIME_SHIFT,
+			S2MU004_TOPOFF_TIMER_90m << TOP_OFF_TIME_SHIFT,
 			TOP_OFF_TIME_MASK);
 
 	s2mu004_read_reg(charger->i2c, S2MU004_CHG_CTRL17, &temp);

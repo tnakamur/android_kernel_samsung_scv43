@@ -721,7 +721,10 @@ int fts_check_custom_library(struct fts_ts_info *info)
 	u8 data[sizeof(struct fts_sponge_information)] = { 0 };
 	int ret = -1;
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
+	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
 	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 
 	ret = fts_write_reg(info, &regAdd[0], 3);
 	if (ret <= 0) {
@@ -764,6 +767,7 @@ int fts_check_custom_library(struct fts_ts_info *info)
 				&info->lowpower_flag, sizeof(info->lowpower_flag));
 
 out:
+	fts_set_scanmode(info, info->scan_mode);
 	input_err(true, &info->client->dev, "%s: use %s\n",
 			__func__, info->use_sponge ? "SPONGE" : "VENDOR");
 
@@ -1105,7 +1109,10 @@ int fts_get_sysinfo_data(struct fts_ts_info *info, u8 sysinfo_addr, u8 read_cnt,
 
 	u8 regAdd[3] = { 0xA4, 0x06, 0x01 }; // request system information
 
+	fts_set_scanmode(info, FTS_SCAN_MODE_SCAN_OFF);
+	info->fts_command(info, FTS_CMD_CLEAR_ALL_EVENT, true);
 	fts_interrupt_set(info, INT_DISABLE);
+	fts_release_all_finger(info);
 
 	fts_write_reg(info, &regAdd[0], 3);
 
@@ -1139,7 +1146,7 @@ int fts_get_sysinfo_data(struct fts_ts_info *info, u8 sysinfo_addr, u8 read_cnt,
 
 ERROR:
 	kfree(buff);
-	fts_interrupt_set(info, INT_ENABLE);
+	fts_set_scanmode(info, info->scan_mode);
 	return rc;
 }
 
@@ -3501,7 +3508,7 @@ static int fts_pm_suspend(struct device *dev)
 
 	input_dbg(true, &info->client->dev, "%s\n", __func__);
 
-#ifdef USE_OPEN_CLOSE
+#if 0//def USE_OPEN_CLOSE
 	if (info->input_dev) {
 		int retval = mutex_lock_interruptible(&info->input_dev->mutex);
 
