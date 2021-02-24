@@ -1872,6 +1872,8 @@ static int s2mu005_fg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		if (val->intval == SEC_FUELGAUGE_CAPACITY_TYPE_RAW) {
 			val->intval = s2mu005_get_rawsoc(fuelgauge);
+		} else if (val->intval == SEC_FUELGAUGE_CAPACITY_TYPE_DYNAMIC_SCALE) {
+			val->intval = fuelgauge->raw_capacity;
 		} else {
 			val->intval = s2mu005_get_rawsoc(fuelgauge) / 10;
 
